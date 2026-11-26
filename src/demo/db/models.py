@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import TIMESTAMP, String
+from sqlalchemy import TIMESTAMP, Boolean, String, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,3 +26,5 @@ class Capture(Base):
     event_end: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     # Open WebUI user id that uploaded it; NULL in single-user mode or for older rows.
     owner: Mapped[str | None] = mapped_column(String(length=255), nullable=True, index=True)
+    # Visible to every user in multi-user mode (e.g. the capture of a seminar).
+    shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())

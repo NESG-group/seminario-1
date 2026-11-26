@@ -1,3 +1,4 @@
 fastapi>=0.110
 uvicorn>=0.29
 ldap3>=2.9.1
+markdown>=3.6

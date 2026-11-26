@@ -9,12 +9,13 @@ from demo.db.session import get_session
 from demo.services.datalake_ingest import ingest_capture_to_datalake
 
 
-async def ingest_pcap_bytes(data: bytes) -> Capture:
+async def ingest_pcap_bytes(data: bytes, shared: bool = False) -> Capture:
     """Stage an uploaded pcap under `PCAP_STAGING_ROOT` and register it in
     the datalake catalog.
 
     The file is written to its final location before the catalog row is
     created, so `Capture.file_path` always points to a file that exists.
+    A `shared` capture is visible to every user in multi-user mode.
     """
     capture_id = uuid.uuid4()
     capture_dir = Path(settings.pcap_staging_root) / str(capture_id)
@@ -24,4 +25,4 @@ async def ingest_pcap_bytes(data: bytes) -> Capture:
     pcap_path.write_bytes(data)
 
     async with get_session() as session:
-        return await ingest_capture_to_datalake(session, pcap_path, capture_id=capture_id)
+        return await ingest_capture_to_datalake(session, pcap_path, capture_id=capture_id, shared=shared)

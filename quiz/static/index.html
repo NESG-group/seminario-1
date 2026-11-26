@@ -7,58 +7,136 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #667085; --line: #e2e6ec;
-    --accent: #2f5bea; --ok: #1a7f4b; --ok-bg: #e6f4ec; --bad: #b42318; --bad-bg: #fdecea;
+    --accent: #2f5bea; --accent-bg: #eaf0ff; --ok: #1a7f4b; --ok-bg: #e6f4ec; --bad: #b42318; --bad-bg: #fdecea;
     --lock: #98a2b3; --radius: 10px;
+    --gold: #c9930a; --gold-bg: #fdf3d7; --silver: #7d8796; --silver-bg: #eef0f3; --bronze: #a8622c; --bronze-bg: #f8e9dc;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14171c; --card: #1c2027; --text: #e8ebf0; --muted: #98a2b3; --line: #2b313b;
-            --accent: #7b9cff; --ok: #4cc38a; --ok-bg: #16281f; --bad: #ff8b7e; --bad-bg: #2c1a18; --lock: #667085; }
+            --accent: #7b9cff; --accent-bg: #1f2740; --ok: #4cc38a; --ok-bg: #16281f; --bad: #ff8b7e; --bad-bg: #2c1a18; --lock: #667085;
+            --gold: #f2c14e; --gold-bg: #33290f; --silver: #c3cad4; --silver-bg: #262b33; --bronze: #e0995e; --bronze-bg: #33231a; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
   .bar { max-width: 860px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
   .bar h1 { font-size: 17px; margin: 0; flex: 1; }
   .who { color: var(--muted); font-size: 13px; }
   main { max-width: 860px; margin: 0 auto; padding: 20px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
   .tab { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 7px 14px;
-         border-radius: 999px; cursor: pointer; font: inherit; }
+         border-radius: 999px; cursor: pointer; font: inherit; transition: background .2s, color .2s; }
   .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px;
+          transition: border-color .3s, box-shadow .3s, opacity .3s; }
   .card.locked { opacity: .6; }
-  .head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .card.solved { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  .head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
   .num { font-weight: 600; }
   .chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .chip.solved { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
   .chip.failed { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
-  .pts { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .pts { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .qtext { white-space: pre-wrap; margin: 6px 0 12px; }
+  .race { font-size: 13px; color: var(--muted); margin: -4px 0 12px; display: flex; align-items: center; gap: 8px; }
+  .race .mult { font-weight: 700; color: var(--accent); background: var(--accent-bg); border-radius: 6px; padding: 1px 7px;
+                font-variant-numeric: tabular-nums; }
+  .race.hot .mult { animation: pulse 1.6s ease-in-out infinite; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   input[type=text], input[type=password] { flex: 1; min-width: 180px; padding: 9px 11px; border-radius: 8px;
-         border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
-  button.primary, button.ghost { padding: 9px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+         border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; transition: border-color .2s; }
+  input.wrong { border-color: var(--bad); animation: shake .45s; }
+  button.primary, button.ghost { padding: 9px 14px; border-radius: 8px; font: inherit; cursor: pointer; transition: transform .1s; }
+  button.primary:active, button.ghost:active { transform: scale(.97); }
   button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
   button:disabled { opacity: .5; cursor: default; }
   .msg { margin-top: 8px; font-size: 14px; min-height: 1.2em; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+
+  /* Marcador y escala de bonus */
+  .scoreboard { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .total { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+  .total small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  .scale { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: auto; font-size: 12px; color: var(--muted); }
+  .scale span.step { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+
+  /* Medallas */
+  .medal { display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 999px; font-weight: 700;
+           font-size: 13px; background: var(--accent-bg); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .medal.p1 { background: var(--gold-bg); color: var(--gold); box-shadow: inset 0 0 0 2px var(--gold); }
+  .medal.p2 { background: var(--silver-bg); color: var(--silver); box-shadow: inset 0 0 0 2px var(--silver); }
+  .medal.p3 { background: var(--bronze-bg); color: var(--bronze); box-shadow: inset 0 0 0 2px var(--bronze); }
+  .result { display: flex; align-items: center; gap: 10px; font-size: 14px; margin-bottom: 10px; }
+
+  /* Ranking */
+  .podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 10px; align-items: end; margin-bottom: 12px; }
+  .step-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 10px; text-align: center;
+               display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 120px; justify-content: flex-end; }
+  .step-card.first { min-height: 150px; border-color: var(--gold); }
+  .step-card.me { box-shadow: 0 0 0 2px var(--ok) inset; }
+  .step-card .name { font-weight: 600; overflow-wrap: anywhere; }
+  .step-card .points { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .step-card.empty { opacity: .45; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.n { font-variant-numeric: tabular-nums; }
   tr.me td { background: var(--ok-bg); }
+  tr.bump td { animation: bump 1.2s ease-out; }
+  .feed { list-style: none; margin: 0; padding: 0; }
+  .feed li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .feed li:last-child { border-bottom: 0; }
+  .feed li.new { animation: slide-in .5s ease-out; }
+  .feed .pts-gain { margin-left: auto; color: var(--ok); font-weight: 600; font-variant-numeric: tabular-nums; }
+  h3.section { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+
+  /* Login */
   .login { max-width: 360px; margin: 60px auto; }
   .login h2 { margin-top: 0; }
   .login .row { flex-direction: column; }
-  a { color: var(--accent); }
-  [hidden] { display: none !important; }
+
+  /* Efectos */
+  .enter { animation: rise .45s ease-out both; }
+  .flash-ok { animation: flash-ok 1.2s ease-out; }
+  .float { position: fixed; pointer-events: none; font-weight: 800; font-size: 22px; color: var(--ok); z-index: 20;
+           animation: float-up 1.3s ease-out forwards; font-variant-numeric: tabular-nums; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--card); color: var(--text);
+           border: 1px solid var(--line); border-radius: 12px; padding: 12px 18px; box-shadow: 0 8px 30px rgba(0,0,0,.18);
+           display: flex; align-items: center; gap: 12px; z-index: 30; animation: toast-in .35s ease-out; max-width: calc(100% - 32px); }
+  .toast.out { animation: toast-out .35s ease-in forwards; }
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 25; }
+
+  @keyframes shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); }
+                     60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes flash-ok { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+                        100% { box-shadow: 0 0 0 14px transparent; } }
+  @keyframes float-up { from { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, -70px) scale(1.25); } }
+  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes toast-out { to { opacity: 0; transform: translate(-50%, 16px); } }
+  @keyframes bump { from { background: var(--accent-bg); } to { background: transparent; } }
+  @keyframes slide-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  @media (max-width: 560px) {
+    .podium { grid-template-columns: 1fr; }
+    .scale { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
 <header><div class="bar">
   <h1 id="title">Quiz de la demo</h1>
+  <a href="/instrucciones" target="_blank" rel="noopener">Instrucciones</a>
   <span class="who" id="who"></span>
   <a id="csv" href="/api/admin/results.csv" hidden>CSV</a>
   <button class="ghost" id="logout" hidden>Salir</button>
@@ -67,7 +145,8 @@
 <main>
   <section id="login-view" class="card login" hidden>
     <h2>Iniciar sesión</h2>
-    <p class="hint">Usa tu usuario y contraseña de LDAP.</p>
+    <p class="hint">Usa el mismo usuario y contraseña que en el chat.
+      Antes de empezar, lee las <a href="/instrucciones" target="_blank" rel="noopener">instrucciones</a>.</p>
     <form id="login-form" class="row">
       <input type="text" id="u" placeholder="Usuario" autocomplete="username" required>
       <input type="password" id="p" placeholder="Contraseña" autocomplete="current-password" required>
@@ -83,26 +162,40 @@
     </div>
 
     <div id="questions-pane">
-      <p class="hint">Haz cada pregunta al asistente en el chat, copiando el texto con el botón, y escribe aquí la respuesta que consideres correcta. Las preguntas se desbloquean en orden.
+      <div class="card scoreboard">
+        <div class="total"><span id="total">0</span><small>puntos</small></div>
+        <div class="scale" id="scale" hidden></div>
+      </div>
+      <p class="hint">Haz cada pregunta al asistente en el chat, copiando el texto con el botón, y escribe aquí la respuesta que consideres correcta. Las preguntas se desbloquean en orden. Cuanto antes aciertes respecto al resto, más multiplicas.
         <a id="chat-link" target="_blank" rel="noopener" hidden>Abrir el chat</a></p>
-      <p class="hint" id="capture-hint" hidden>Antes de empezar, <a href="/api/capture" download>descarga la captura</a> y adjúntala en el chat con tu mismo usuario.</p>
-      <div id="total" class="hint"></div>
+      <p class="hint" id="capture-hint" hidden>ID de la traza: <code id="capture-id"></code></p>
       <div id="questions"></div>
     </div>
 
     <div id="ranking-pane" hidden>
+      <div class="podium" id="podium"></div>
       <div class="card"><table>
         <thead><tr><th>#</th><th>Participante</th><th>Puntos</th><th>Resueltas</th></tr></thead>
         <tbody id="ranking-body"></tbody>
       </table></div>
+      <div class="card">
+        <h3 class="section">Últimos aciertos</h3>
+        <ul class="feed" id="feed"></ul>
+      </div>
     </div>
   </section>
 </main>
+<canvas id="confetti" hidden></canvas>
 
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  let state = null, rankingTimer = null;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let state = null, rankingTimer = null, stateTimer = null;
+  let shownTotal = 0;
+  const lastStatus = new Map();
+  const seenFeed = new Set();
+  let lastRankPoints = new Map();
 
   async function api(path, options = {}) {
     const res = await fetch(path, {
@@ -120,6 +213,15 @@
     return data;
   }
 
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const fmtMult = (m) => "×" + String(Math.round(m * 100) / 100).replace(".", ",");
+  const medal = (pos) => el("span", "medal" + (pos <= 3 ? " p" + pos : ""), pos + "º");
+
   function show(view) {
     $("login-view").hidden = view !== "login";
     $("app-view").hidden = view !== "app";
@@ -127,100 +229,214 @@
     if (view !== "app") { $("who").textContent = ""; $("csv").hidden = true; }
   }
 
+  // ------------------------------------------------------------------ efectos
+  function countTo(target) {
+    const node = $("total");
+    const from = shownTotal;
+    shownTotal = target;
+    if (reduceMotion || from === target) { node.textContent = target; return; }
+    const start = performance.now(), dur = 900;
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / dur);
+      node.textContent = Math.round(from + (target - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function floatText(text, anchor) {
+    if (reduceMotion) return;
+    const r = anchor.getBoundingClientRect();
+    const f = el("div", "float", text);
+    f.style.left = r.left + r.width / 2 + "px";
+    f.style.top = r.top - 6 + "px";
+    document.body.append(f);
+    setTimeout(() => f.remove(), 1400);
+  }
+
+  function toast(pos, text) {
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
+    const t = el("div", "toast");
+    t.setAttribute("role", "status");
+    if (pos) t.append(medal(pos));
+    t.append(el("span", "", text));
+    document.body.append(t);
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 3200);
+  }
+
+  function confetti(anchor, amount) {
+    if (reduceMotion) return;
+    const canvas = $("confetti");
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+    canvas.hidden = false;
+    ctx.scale(dpr, dpr);
+    const r = anchor.getBoundingClientRect();
+    const ox = r.left + r.width / 2, oy = r.top + r.height / 2;
+    const colors = ["#2f5bea", "#1a7f4b", "#f2c14e", "#e0995e", "#7b9cff", "#4cc38a"];
+    const parts = Array.from({ length: amount }, () => ({
+      x: ox, y: oy, vx: (Math.random() - .5) * 11, vy: -Math.random() * 10 - 3,
+      w: 5 + Math.random() * 5, h: 3 + Math.random() * 4, rot: Math.random() * 6, vr: (Math.random() - .5) * .4,
+      c: colors[(Math.random() * colors.length) | 0],
+    }));
+    const start = performance.now();
+    const frame = (now) => {
+      const t = now - start;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      for (const p of parts) {
+        p.vy += .32; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        ctx.save(); ctx.globalAlpha = Math.max(0, 1 - t / 1700);
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+      }
+      if (t < 1700) requestAnimationFrame(frame);
+      else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); canvas.hidden = true; }
+    };
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- preguntas
+  function raceLine(q) {
+    const line = el("div", "race");
+    line.dataset.qid = q.id;
+    fillRace(line, q);
+    return line;
+  }
+
+  function fillRace(line, q) {
+    line.replaceChildren();
+    const mult = q.next_multiplier;
+    line.classList.toggle("hot", mult > 1);
+    if (q.solved_by === 0) {
+      line.append(el("span", "", "Nadie la ha resuelto todavía."));
+      if (mult > 1) line.append(el("span", "", "La primera persona gana"), el("span", "mult", fmtMult(mult)));
+    } else {
+      line.append(el("span", "", "Resuelta por " + q.solved_by + (q.solved_by === 1 ? " persona." : " personas.")));
+      if (mult > 1) line.append(el("span", "", "Siguiente:"), el("span", "mult", fmtMult(mult)));
+    }
+  }
+
+  function renderScale() {
+    const box = $("scale");
+    const steps = state.speed_multipliers || [];
+    box.hidden = !steps.length;
+    if (!steps.length) return;
+    box.replaceChildren(el("span", "", "Bonus por rapidez:"));
+    steps.forEach((m, i) => box.append(el("span", "step", (i + 1) + "º " + fmtMult(m))));
+    box.append(el("span", "step", "resto ×1"));
+  }
+
   function chip(status) {
     const map = { locked: "Bloqueada", open: "Abierta", solved: "Resuelta", failed: "Sin intentos" };
-    const el = document.createElement("span");
-    el.className = "chip " + status;
-    el.textContent = map[status] || status;
-    return el;
+    return el("span", "chip " + status, map[status] || status);
   }
 
   function renderQuestions() {
     const box = $("questions");
     box.replaceChildren();
-    $("total").textContent = "Puntos: " + state.total_points;
+    countTo(state.total_points);
+    renderScale();
     for (const q of state.questions) {
-      const card = document.createElement("div");
-      card.className = "card" + (q.status === "locked" ? " locked" : "");
+      const card = el("div", "card" + (q.status === "locked" ? " locked" : "") + (q.status === "solved" ? " solved" : ""));
+      card.id = "card-" + q.id;
+      const before = lastStatus.get(q.id);
+      if (before === "locked" && q.status !== "locked") card.classList.add("enter");
+      lastStatus.set(q.id, q.status);
 
-      const head = document.createElement("div");
-      head.className = "head";
-      const num = document.createElement("span");
-      num.className = "num";
-      num.textContent = "Pregunta " + q.number;
-      const pts = document.createElement("span");
-      pts.className = "pts";
-      pts.textContent = q.status === "solved" ? "+" + q.points + " pts" : "hasta " + q.max_points + " pts";
-      head.append(num, chip(q.status), pts);
+      const head = el("div", "head");
+      const pts = el("span", "pts", q.status === "solved" ? "+" + q.points + " pts" : "hasta " + q.max_points + " pts");
+      head.append(el("span", "num", "Pregunta " + q.number), chip(q.status), pts);
       card.append(head);
 
       if (q.status === "locked") {
-        const p = document.createElement("div");
-        p.className = "hint";
-        p.textContent = "Responde antes la pregunta anterior (o agota sus intentos).";
-        card.append(p);
-      } else {
-        const text = document.createElement("div");
-        text.className = "qtext";
-        text.textContent = q.text;
-        card.append(text);
-
-        const copy = document.createElement("button");
-        copy.className = "ghost";
-        copy.type = "button";
-        copy.textContent = "Copiar para el chat";
-        copy.addEventListener("click", async () => {
-          const prompt = state.capture_id ? "capture_id " + state.capture_id + "\n" + q.text : q.text;
-          try { await navigator.clipboard.writeText(prompt); copy.textContent = "Copiado"; }
-          catch (_) { window.prompt("Copia este texto:", prompt); }
-          setTimeout(() => (copy.textContent = "Copiar para el chat"), 1500);
-        });
-
-        if (q.status === "open") {
-          const form = document.createElement("form");
-          form.className = "row";
-          const input = document.createElement("input");
-          input.type = "text";
-          input.required = true;
-          input.maxLength = 100;
-          input.placeholder = q.type === "ip" ? "Ej.: 192.168.1.10" : q.type === "port" ? "Ej.: 8080" : q.type === "frame" ? "Ej.: 1234" : "Tu respuesta";
-          input.autocomplete = "off";
-          const send = document.createElement("button");
-          send.className = "primary";
-          send.type = "submit";
-          send.textContent = "Enviar (" + q.attempts_left + " intentos)";
-          const msg = document.createElement("div");
-          msg.className = "msg";
-          form.append(input, send);
-          form.addEventListener("submit", async (ev) => {
-            ev.preventDefault();
-            send.disabled = true;
-            try {
-              const r = await api("/api/answer", { method: "POST", body: JSON.stringify({ question_id: q.id, answer: input.value }) });
-              if (r.correct) { msg.className = "msg ok"; msg.textContent = "¡Correcto! +" + r.points + " puntos"; }
-              else if (r.attempts_left > 0) { msg.className = "msg bad"; msg.textContent = "No es correcta. Te quedan " + r.attempts_left + " intentos."; }
-              else { msg.className = "msg bad"; msg.textContent = "No es correcta y no te quedan intentos."; }
-              setTimeout(loadState, r.correct || r.attempts_left === 0 ? 900 : 1200);
-            } catch (e) {
-              msg.className = "msg bad";
-              msg.textContent = e.message;
-              send.disabled = false;
-              if (e.status === 401) location.reload();
-            }
-          });
-          const wrap = document.createElement("div");
-          wrap.className = "row";
-          wrap.style.marginBottom = "10px";
-          wrap.append(copy);
-          card.append(wrap, form, msg);
-        } else {
-          const wrap = document.createElement("div");
-          wrap.className = "row";
-          wrap.append(copy);
-          card.append(wrap);
-        }
+        card.append(el("div", "hint", "Responde antes la pregunta anterior (o agota sus intentos)."));
+        box.append(card);
+        continue;
       }
+      card.append(el("div", "qtext", q.text));
+
+      if (q.status === "solved" && q.position) {
+        const res = el("div", "result");
+        res.append(medal(q.position), el("span", "", "Resuelta en " + q.position + "ª posición · " + fmtMult(q.multiplier)));
+        card.append(res);
+      } else if (q.status === "open") {
+        card.append(raceLine(q));
+      }
+
+      const copy = el("button", "ghost", "Copiar para el chat");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
+        const prompt = state.capture_id ? "capture_id " + state.capture_id + "\n" + q.text : q.text;
+        try { await navigator.clipboard.writeText(prompt); copy.textContent = "Copiado"; }
+        catch (_) { window.prompt("Copia este texto:", prompt); }
+        setTimeout(() => (copy.textContent = "Copiar para el chat"), 1500);
+      });
+      const wrap = el("div", "row");
+      wrap.append(copy);
+
+      if (q.status !== "open") { card.append(wrap); box.append(card); continue; }
+
+      wrap.style.marginBottom = "10px";
+      const form = el("form", "row");
+      const input = el("input");
+      input.type = "text";
+      input.required = true;
+      input.maxLength = 100;
+      input.placeholder = q.type === "ip" ? "Ej.: 192.168.1.10" : q.type === "port" ? "Ej.: 8080" : q.type === "frame" ? "Ej.: 1234" : "Tu respuesta";
+      input.autocomplete = "off";
+      const send = el("button", "primary", "Enviar (" + q.attempts_left + " intentos)");
+      send.type = "submit";
+      const msg = el("div", "msg");
+      form.append(input, send);
+      input.addEventListener("input", () => input.classList.remove("wrong"));
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        send.disabled = true;
+        try {
+          const r = await api("/api/answer", { method: "POST", body: JSON.stringify({ question_id: q.id, answer: input.value }) });
+          if (r.correct) {
+            msg.className = "msg ok";
+            msg.textContent = "¡Correcto! +" + r.points + " puntos" + (r.multiplier > 1 ? " (" + fmtMult(r.multiplier) + ")" : "");
+            card.classList.add("flash-ok");
+            floatText("+" + r.points, send);
+            confetti(send, r.position === 1 ? 160 : r.multiplier > 1 ? 90 : 45);
+            const label = r.position === 1 ? "¡Primera persona en resolver la pregunta " + q.number + "!"
+              : "Pregunta " + q.number + " resuelta en " + r.position + "ª posición";
+            toast(r.position, label + (r.multiplier > 1 ? " " + fmtMult(r.multiplier) : ""));
+          } else {
+            input.classList.remove("wrong"); void input.offsetWidth; input.classList.add("wrong");
+            msg.className = "msg bad";
+            msg.textContent = r.attempts_left > 0 ? "No es correcta. Te quedan " + r.attempts_left + " intentos." : "No es correcta y no te quedan intentos.";
+            if (r.attempts_left > 0) { send.disabled = false; send.textContent = "Enviar (" + r.attempts_left + " intentos)"; input.select(); }
+          }
+          if (r.correct || r.attempts_left === 0) setTimeout(loadState, 1100);
+        } catch (e) {
+          msg.className = "msg bad";
+          msg.textContent = e.message;
+          send.disabled = false;
+          if (e.status === 401) location.reload();
+        }
+      });
+      card.append(wrap, form, msg);
       box.append(card);
+    }
+  }
+
+  // Refresco periódico: si solo cambia la carrera, se actualiza en sitio para no borrar lo que se está escribiendo.
+  async function refreshState() {
+    const next = await api("/api/state");
+    const structural = next.questions.some((q, i) => {
+      const old = state && state.questions[i];
+      return !old || old.status !== q.status || old.points !== q.points;
+    });
+    state = next;
+    if (structural) { renderQuestions(); return; }
+    for (const q of state.questions) {
+      const line = document.querySelector('.race[data-qid="' + q.id + '"]');
+      if (line) fillRace(line, q);
+      const pts = document.querySelector("#card-" + q.id + " .pts");
+      if (pts && q.status !== "solved") pts.textContent = "hasta " + q.max_points + " pts";
     }
   }
 
@@ -229,35 +445,74 @@
     $("title").textContent = state.title;
     const link = $("chat-link");
     if (state.chat_url) { link.href = state.chat_url; link.hidden = false; }
-    $("capture-hint").hidden = !state.capture_download;
+    $("capture-id").textContent = state.capture_id;
+    $("capture-hint").hidden = !state.capture_id;
     renderQuestions();
   }
 
-  async function loadRanking() {
-    const data = await api("/api/ranking");
-    const body = $("ranking-body");
-    body.replaceChildren();
-    if (!data.entries.length) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.colSpan = 4;
-      td.className = "hint";
-      td.textContent = "Todavía no hay participantes.";
-      tr.append(td);
-      body.append(tr);
-      return;
-    }
-    for (const e of data.entries) {
-      const tr = document.createElement("tr");
-      if (e.me) tr.className = "me";
-      for (const value of [e.rank, e.name, e.points, e.solved + " / " + data.total_questions]) {
-        const td = document.createElement("td");
-        td.textContent = value;
-        tr.append(td);
-      }
-      body.append(tr);
+  // ------------------------------------------------------------------ ranking
+  function renderPodium(entries) {
+    const box = $("podium");
+    box.replaceChildren();
+    const slots = [[entries[1], 2], [entries[0], 1], [entries[2], 3]];
+    for (const [e, pos] of slots) {
+      const card = el("div", "step-card" + (pos === 1 ? " first" : "") + (e ? "" : " empty") + (e && e.me ? " me" : ""));
+      card.append(medal(pos));
+      card.append(el("div", "name", e ? e.name : "—"));
+      card.append(el("div", "points", e ? String(e.points) : "0"));
+      card.append(el("div", "hint", e ? e.solved + (e.solved === 1 ? " resuelta" : " resueltas") : "libre"));
+      box.append(card);
     }
   }
+
+  function renderRanking(data) {
+    const body = $("ranking-body");
+    // FLIP: posición previa de cada fila para animar los adelantamientos.
+    const before = new Map([...body.querySelectorAll("tr[data-key]")].map((tr) => [tr.dataset.key, tr.getBoundingClientRect().top]));
+    body.replaceChildren();
+    renderPodium(data.entries);
+    if (!data.entries.length) {
+      const tr = el("tr");
+      const td = el("td", "hint", "Todavía no hay participantes.");
+      td.colSpan = 4;
+      tr.append(td);
+      body.append(tr);
+    }
+    const points = new Map();
+    for (const e of data.entries) {
+      const tr = el("tr", e.me ? "me" : "");
+      tr.dataset.key = e.name;
+      const rankCell = el("td", "n");
+      rankCell.append(e.rank <= 3 ? medal(e.rank) : document.createTextNode(e.rank));
+      tr.append(rankCell, el("td", "", e.name), el("td", "n", e.points), el("td", "n", e.solved + " / " + data.total_questions));
+      if (lastRankPoints.size && lastRankPoints.get(e.name) !== e.points) tr.classList.add("bump");
+      points.set(e.name, e.points);
+      body.append(tr);
+    }
+    lastRankPoints = points;
+    if (!reduceMotion) {
+      for (const tr of body.querySelectorAll("tr[data-key]")) {
+        const old = before.get(tr.dataset.key);
+        if (old === undefined) continue;
+        const dy = old - tr.getBoundingClientRect().top;
+        if (dy) tr.animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }], { duration: 600, easing: "ease-out" });
+      }
+    }
+
+    const feed = $("feed");
+    feed.replaceChildren();
+    if (!data.recent.length) feed.append(el("li", "hint", "Aún no ha acertado nadie."));
+    const firstLoad = seenFeed.size === 0;
+    for (const r of data.recent) {
+      const key = r.name + "|" + r.question;
+      const li = el("li", !firstLoad && !seenFeed.has(key) ? "new" : "");
+      seenFeed.add(key);
+      li.append(medal(r.position), el("span", "", r.name + " resolvió la pregunta " + r.question), el("span", "pts-gain", "+" + r.points));
+      feed.append(li);
+    }
+  }
+
+  async function loadRanking() { renderRanking(await api("/api/ranking")); }
 
   function selectTab(which) {
     const q = which === "q";
@@ -266,11 +521,13 @@
     $("questions-pane").hidden = !q;
     $("ranking-pane").hidden = q;
     clearInterval(rankingTimer);
+    clearInterval(stateTimer);
     if (!q) {
       loadRanking().catch(() => {});
-      rankingTimer = setInterval(() => loadRanking().catch(() => {}), 10000);
+      rankingTimer = setInterval(() => loadRanking().catch(() => {}), 5000);
     } else {
       loadState().catch(() => {});
+      stateTimer = setInterval(() => refreshState().catch(() => {}), 8000);
     }
   }
 
@@ -293,6 +550,7 @@
   $("logout").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" }).catch(() => {});
     clearInterval(rankingTimer);
+    clearInterval(stateTimer);
     show("login");
   });
   $("tab-q").addEventListener("click", () => selectTab("q"));

@@ -12,6 +12,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import html
 import io
 import ipaddress
 import json
@@ -31,8 +32,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from markdown import markdown
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("quiz")
@@ -43,6 +45,7 @@ COOKIE_NAME = "quiz_session"
 LOGIN_MAX_FAILS = 5
 LOGIN_WINDOW_S = 300.0
 QUESTION_TYPES = ("ip", "port", "frame", "text")
+RECENT_SOLVES = 8
 
 
 # --------------------------------------------------------------------------- #
@@ -76,7 +79,7 @@ class Settings:
     session_hours: float = 12.0
     cookie_secure: bool = False
     chat_url: str = ""  # si se define, sustituye al chat_url de answers.json
-    capture_file: str = ""  # captura que los participantes descargan para adjuntarla al chat
+    instructions_file: str = ""  # Markdown con las instrucciones, servido en /instrucciones sin login
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -100,7 +103,7 @@ class Settings:
             session_hours=float(env("SESSION_HOURS", "12")),
             cookie_secure=_env_bool("COOKIE_SECURE"),
             chat_url=env("CHAT_URL", ""),
-            capture_file=env("CAPTURE_FILE", ""),
+            instructions_file=env("INSTRUCTIONS_FILE", ""),
         )
 
 
@@ -122,6 +125,27 @@ class QuizConfig:
     penalty: int
     min_points: int
     questions: tuple[Question, ...]
+    # Multiplicador por orden de acierto en cada pregunta: [1º, 2º, ...]; después, x1.
+    speed_multipliers: tuple[float, ...] = ()
+
+    def multiplier_for(self, position: int) -> float:
+        return self.speed_multipliers[position - 1] if 1 <= position <= len(self.speed_multipliers) else 1.0
+
+    def max_points(self, question: Question) -> int:
+        return score(question.points, self.multiplier_for(1))
+
+
+def score(base: int, multiplier: float) -> int:
+    """Puntos con multiplicador, redondeando .5 hacia arriba (no al par, como round())."""
+    return int(base * multiplier + 0.5)
+
+
+def _parse_speed_multipliers(raw: Any) -> tuple[float, ...]:
+    if not isinstance(raw, list) or not all(
+        isinstance(m, int | float) and not isinstance(m, bool) and m >= 1 for m in raw
+    ):
+        raise ValueError("speed_multipliers debe ser una lista de números >= 1, p. ej. [2, 1.75, 1.5]")
+    return tuple(float(m) for m in raw)
 
 
 def normalize(kind: str, raw: str) -> str:
@@ -180,6 +204,7 @@ def load_quiz(path: str | Path) -> QuizConfig:
         penalty=int(data.get("penalty_per_wrong", 25)),
         min_points=int(data.get("min_points", 25)),
         questions=tuple(questions),
+        speed_multipliers=_parse_speed_multipliers(data.get("speed_multipliers", [])),
     )
 
 
@@ -362,6 +387,27 @@ def user_progress(conn: sqlite3.Connection, username: str) -> dict[str, Progress
     return out
 
 
+def solved_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute("SELECT question_id, COUNT(*) AS n FROM attempts WHERE correct = 1 GROUP BY question_id")
+    return {r["question_id"]: r["n"] for r in rows}
+
+
+_SOLVES_WITH_POSITION = """
+    SELECT id, username, display_name, question_id, points,
+           ROW_NUMBER() OVER (PARTITION BY question_id ORDER BY id) AS position
+    FROM attempts WHERE correct = 1
+"""
+
+
+def user_positions(conn: sqlite3.Connection, username: str) -> dict[str, int]:
+    rows = conn.execute(f"SELECT question_id, position FROM ({_SOLVES_WITH_POSITION}) WHERE username = ?", (username,))
+    return {r["question_id"]: r["position"] for r in rows}
+
+
+def recent_solves(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
+    return conn.execute(f"SELECT * FROM ({_SOLVES_WITH_POSITION}) ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
 def question_status(config: QuizConfig, progress: dict[str, Progress], index: int) -> str:
     """locked | open | solved | failed"""
     q = config.questions[index]
@@ -412,6 +458,32 @@ def current_user(request: Request) -> User:
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+_INSTRUCTIONS_PAGE = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="/instrucciones.css">
+</head>
+<body>
+<main>
+{body}
+<p class="back"><a href="/">Ir al formulario de respuestas</a></p>
+</main>
+</body>
+</html>
+"""
+
+
+def render_instructions(path: Path) -> str:
+    """Convierte el Markdown de instrucciones en una página HTML completa (se lee en cada petición)."""
+    text = path.read_text(encoding="utf-8")
+    first_heading = next((line.lstrip("#").strip() for line in text.splitlines() if line.startswith("# ")), "")
+    title = html.escape(first_heading or "Instrucciones")
+    return _INSTRUCTIONS_PAGE.format(title=title, body=markdown(text))
+
+
 def _csv_safe(value: str) -> str:
     """Evita inyección de fórmulas al abrir el CSV en una hoja de cálculo."""
     return "'" + value if value[:1] in ("=", "+", "-", "@") else value
@@ -433,10 +505,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raise RuntimeError("Configura LDAP_URL y LDAP_USER_DN_TEMPLATE (o LDAP_BIND_DN + LDAP_BASE_DN)")
 
     config = load_quiz(settings.answers_file)
-    capture_path = Path(settings.capture_file) if settings.capture_file else None
-    if capture_path is not None and not capture_path.is_file():
-        raise RuntimeError(f"CAPTURE_FILE no existe: {capture_path}")
     chat_url = settings.chat_url or config.chat_url
+    instructions_path = Path(settings.instructions_file) if settings.instructions_file else None
+    if instructions_path is not None and not instructions_path.is_file():
+        raise RuntimeError(f"INSTRUCTIONS_FILE no existe: {instructions_path}")
     store = Store(settings.db_path)
     failures: dict[str, deque[float]] = defaultdict(deque)
 
@@ -483,12 +555,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def state(user: CurrentUser) -> dict[str, Any]:
         with store.tx() as conn:
             progress = user_progress(conn, user.username)
+            counts = solved_counts(conn)
+            positions = user_positions(conn, user.username)
         items = []
         total = 0
         for index, q in enumerate(config.questions):
             status = question_status(config, progress, index)
             prog = progress.get(q.id, Progress())
             total += prog.points
+            solved_by = counts.get(q.id, 0)
+            position = positions.get(q.id)
             items.append(
                 {
                     "id": q.id,
@@ -499,15 +575,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "attempts_used": prog.wrong + (1 if prog.solved else 0),
                     "attempts_left": 0 if status in ("solved", "failed") else config.max_attempts - prog.wrong,
                     "points": prog.points,
-                    "max_points": q.points,
+                    "max_points": config.max_points(q),
+                    "solved_by": solved_by,
+                    "next_multiplier": config.multiplier_for(solved_by + 1),
+                    "position": position,
+                    "multiplier": config.multiplier_for(position) if position else None,
                 }
             )
         return {
             "title": config.title,
             "chat_url": chat_url,
-            "capture_download": capture_path is not None,
             "capture_id": config.capture_id,
             "max_attempts": config.max_attempts,
+            "speed_multipliers": list(config.speed_multipliers),
             "total_points": total,
             "questions": items,
         }
@@ -532,7 +612,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=409, detail="Esta pregunta ya está cerrada")
             wrong = progress.get(q.id, Progress()).wrong
             correct = hmac.compare_digest(given, q.answer)
-            points = max(config.min_points, q.points - config.penalty * wrong) if correct else 0
+            # El candado del store serializa las respuestas: el orden de llegada decide la posición.
+            position = solved_counts(conn).get(q.id, 0) + 1 if correct else None
+            multiplier = config.multiplier_for(position) if position else 1.0
+            base = max(config.min_points, q.points - config.penalty * wrong)
+            points = score(base, multiplier) if correct else 0
             conn.execute(
                 "INSERT INTO attempts (username, display_name, question_id, answer, correct, points, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -542,15 +626,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "correct": correct,
             "points": points,
+            "position": position,
+            "multiplier": multiplier,
             "attempts_left": left,
             "status": "solved" if correct else ("failed" if left == 0 else "open"),
         }
-
-    @app.get("/api/capture")
-    def capture(user: CurrentUser) -> FileResponse:
-        if capture_path is None:
-            raise HTTPException(status_code=404, detail="No hay captura para descargar")
-        return FileResponse(capture_path, media_type="application/vnd.tcpdump.pcap", filename=capture_path.name)
 
     @app.get("/api/ranking")
     def ranking(user: CurrentUser) -> dict[str, Any]:
@@ -565,6 +645,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 LIMIT 100
                 """
             ).fetchall()
+            recent = recent_solves(conn, RECENT_SOLVES)
+        numbers = {q.id: i + 1 for i, q in enumerate(config.questions)}
         entries = [
             {
                 "rank": i + 1,
@@ -575,7 +657,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
             for i, r in enumerate(rows)
         ]
-        return {"total_questions": len(config.questions), "entries": entries}
+        feed = [
+            {
+                "name": r["display_name"] or r["username"],
+                "question": numbers.get(r["question_id"], 0),
+                "position": r["position"],
+                "points": r["points"],
+            }
+            for r in recent
+        ]
+        return {"total_questions": len(config.questions), "entries": entries, "recent": feed}
 
     @app.get("/api/admin/results.csv")
     def results_csv(user: CurrentUser) -> PlainTextResponse:
@@ -611,6 +702,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="quiz_results.csv"'},
         )
+
+    @app.get("/instrucciones", response_class=HTMLResponse)
+    def instructions() -> HTMLResponse:
+        if instructions_path is None:
+            raise HTTPException(status_code=404, detail="No hay instrucciones")
+        return HTMLResponse(render_instructions(instructions_path))
 
     app.mount("/", StaticFiles(directory=BASE_DIR / "static", html=True), name="static")
     return app

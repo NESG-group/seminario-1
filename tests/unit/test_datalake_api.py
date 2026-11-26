@@ -20,7 +20,9 @@ async def test_ingest_pcap_bytes_writes_file_before_registering_capture(
 
     seen_paths: list[Path] = []
 
-    async def fake_ingest_capture_to_datalake(_session: object, pcap_path: Path, *, capture_id: uuid.UUID) -> Capture:
+    async def fake_ingest_capture_to_datalake(
+        _session: object, pcap_path: Path, *, capture_id: uuid.UUID, shared: bool = False
+    ) -> Capture:
         seen_paths.append(pcap_path)
         assert pcap_path.exists(), "file must be written before the service is called"
         return Capture(
@@ -45,7 +47,9 @@ async def test_ingest_pcap_bytes_stages_under_a_fresh_uuid_directory(
     """Each ingestion should get its own capture_id-named directory."""
     monkeypatch.setattr(ingest_module.settings, "pcap_staging_root", tmp_path)
 
-    async def fake_ingest_capture_to_datalake(_session: object, pcap_path: Path, *, capture_id: uuid.UUID) -> Capture:
+    async def fake_ingest_capture_to_datalake(
+        _session: object, pcap_path: Path, *, capture_id: uuid.UUID, shared: bool = False
+    ) -> Capture:
         assert pcap_path.parent.name == str(capture_id)
         return Capture(
             id=capture_id,
@@ -83,7 +87,7 @@ def test_ingest_endpoint_returns_capture_summary(client: TestClient, monkeypatch
     """A valid pcap upload should return the registered capture's id and time window."""
     capture_id = uuid.uuid4()
 
-    async def fake_ingest_pcap_bytes(_data: bytes) -> Capture:
+    async def fake_ingest_pcap_bytes(_data: bytes, shared: bool = False) -> Capture:
         return Capture(
             id=capture_id,
             file_path="/data/pcaps/x.pcap",
@@ -110,7 +114,7 @@ def test_ingest_endpoint_returns_422_when_the_pcap_has_no_packets(
 ) -> None:
     """A pcap with no packets has no time window, so it is an unprocessable upload rather than a 500."""
 
-    async def fake_ingest_pcap_bytes(_data: bytes) -> Capture:
+    async def fake_ingest_pcap_bytes(_data: bytes, shared: bool = False) -> Capture:
         raise ValueError("Pcap file contains no packets.")
 
     monkeypatch.setattr(router_module, "ingest_pcap_bytes", fake_ingest_pcap_bytes)
@@ -122,3 +126,46 @@ def test_ingest_endpoint_returns_422_when_the_pcap_has_no_packets(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Pcap file contains no packets."
+
+
+@pytest.mark.asyncio
+async def test_ingest_pcap_bytes_forwards_the_shared_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ingest_module.settings, "pcap_staging_root", tmp_path)
+    seen: list[bool] = []
+
+    async def fake_ingest_capture_to_datalake(
+        _session: object, pcap_path: Path, *, capture_id: uuid.UUID, shared: bool = False
+    ) -> Capture:
+        seen.append(shared)
+        t = datetime(2026, 1, 1, tzinfo=UTC)
+        return Capture(id=capture_id, file_path=str(pcap_path), event_start=t, event_end=t, shared=shared)
+
+    monkeypatch.setattr(ingest_module, "ingest_capture_to_datalake", fake_ingest_capture_to_datalake)
+
+    await ingest_module.ingest_pcap_bytes(b"pcap-bytes")
+    await ingest_module.ingest_pcap_bytes(b"pcap-bytes", shared=True)
+
+    assert seen == [False, True]
+
+
+@pytest.mark.parametrize(("query", "expected"), [("", False), ("?shared=true", True), ("?shared=false", False)])
+def test_ingest_endpoint_shared_query_parameter(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, query: str, expected: bool
+) -> None:
+    seen: list[bool] = []
+
+    async def fake_ingest_pcap_bytes(_data: bytes, shared: bool = False) -> Capture:
+        seen.append(shared)
+        t = datetime(2026, 1, 1, tzinfo=UTC)
+        return Capture(id=uuid.uuid4(), file_path="/data/x.pcap", event_start=t, event_end=t, shared=shared)
+
+    monkeypatch.setattr(router_module, "ingest_pcap_bytes", fake_ingest_pcap_bytes)
+
+    response = client.post(
+        f"/v1/datalake/ingest{query}",
+        files={"file": ("capture.pcap", b"pcap-bytes", "application/vnd.tcpdump.pcap")},
+    )
+
+    assert response.status_code == 200
+    assert seen == [expected]
+    assert response.json()["shared"] is expected

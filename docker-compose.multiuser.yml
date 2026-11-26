@@ -91,12 +91,14 @@ services:
       - ADMIN_USERS=${QUIZ_ADMIN_USERS:-admin}
       - COOKIE_SECURE=true
       - CHAT_URL=https://${DEMO_HOST}
-      - CAPTURE_FILE=/srv/quiz/capture/CryLock_final.pcap
+      # Public page at /instrucciones, read on every request: edits show without a restart.
+      - INSTRUCTIONS_FILE=/srv/quiz/docs/instrucciones-seminario-1.md
       # Only reachable through the proxy: trust its X-Forwarded-For for the login throttle.
       - FORWARDED_ALLOW_IPS=*
     volumes:
       - quiz-data:/data
-      - ./data/CryLock_final.pcap:/srv/quiz/capture/CryLock_final.pcap:ro
+      # The whole folder, not the file: editors that save by replacing the file break single-file mounts.
+      - ./docs:/srv/quiz/docs:ro
     depends_on:
       - lldap
     networks:

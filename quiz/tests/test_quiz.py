@@ -14,13 +14,22 @@ import app as quiz  # noqa: E402
 ANSWERS = Path(__file__).resolve().parent.parent / "answers.json"
 
 
-def make_client(tmp_path, **overrides) -> TestClient:
+def answers_with(tmp_path, speed_multipliers: list[float]) -> str:
+    """Copia de answers.json con unos multiplicadores fijos, para no depender del fichero real."""
+    cfg = json.loads(ANSWERS.read_text())
+    cfg["speed_multipliers"] = speed_multipliers
+    path = tmp_path / f"answers-{len(speed_multipliers)}.json"
+    path.write_text(json.dumps(cfg))
+    return str(path)
+
+
+def make_client(tmp_path, speed_multipliers: list[float] | None = None, **overrides) -> TestClient:
     settings = quiz.Settings(
         auth_mode="dev",
         dev_password="pw",
         secret_key="test-secret",
         db_path=str(tmp_path / "quiz.db"),
-        answers_file=str(ANSWERS),
+        answers_file=answers_with(tmp_path, speed_multipliers or []),
         admin_users=frozenset({"admin"}),
         **overrides,
     )
@@ -102,6 +111,7 @@ def test_min_points(tmp_path):
     cfg = json.loads(ANSWERS.read_text())
     cfg["max_attempts"] = 10
     cfg["penalty_per_wrong"] = 40
+    cfg["speed_multipliers"] = []
     path = tmp_path / "answers.json"
     path.write_text(json.dumps(cfg))
     settings = quiz.Settings(
@@ -247,32 +257,152 @@ def test_chat_url_defaults_to_answers_file(tmp_path):
     assert c.get("/api/state").json()["chat_url"] == json.loads(ANSWERS.read_text())["chat_url"]
 
 
-def test_capture_download_requires_login(tmp_path):
-    capture = tmp_path / "capture.pcap"
-    capture.write_bytes(b"\x0a\x0d\x0d\x0a")
-    c = make_client(tmp_path, capture_file=str(capture))
-    assert c.get("/api/capture").status_code == 401
-
-
-def test_capture_download_serves_configured_file(tmp_path):
-    capture = tmp_path / "CryLock_final.pcap"
-    capture.write_bytes(b"\x0a\x0d\x0d\x0a")
-    c = make_client(tmp_path, capture_file=str(capture))
-    login(c, "ana")
-    assert c.get("/api/state").json()["capture_download"] is True
-    res = c.get("/api/capture")
+def test_instructions_page_is_public_and_rendered(tmp_path):
+    doc = tmp_path / "instrucciones.md"
+    doc.write_text("# Seminario 1\n\n- **URL:** `https://demo.example`\n", encoding="utf-8")
+    c = make_client(tmp_path, instructions_file=str(doc))
+    res = c.get("/instrucciones")
     assert res.status_code == 200
-    assert res.content == b"\x0a\x0d\x0d\x0a"
-    assert 'filename="CryLock_final.pcap"' in res.headers["content-disposition"]
+    assert res.headers["content-type"].startswith("text/html")
+    assert "<h1>Seminario 1</h1>" in res.text
+    assert "<strong>URL:</strong>" in res.text
+    assert "<title>Seminario 1</title>" in res.text
 
 
-def test_capture_download_absent_when_not_configured(tmp_path):
+def test_instructions_page_reflects_edits_without_restart(tmp_path):
+    doc = tmp_path / "instrucciones.md"
+    doc.write_text("# Antes\n", encoding="utf-8")
+    c = make_client(tmp_path, instructions_file=str(doc))
+    doc.write_text("# Después\n", encoding="utf-8")
+    assert "<h1>Después</h1>" in c.get("/instrucciones").text
+
+
+def test_instructions_page_absent_when_not_configured(tmp_path):
+    c = make_client(tmp_path)
+    assert c.get("/instrucciones").status_code == 404
+
+
+def test_missing_instructions_file_fails_at_start(tmp_path):
+    with pytest.raises(RuntimeError):
+        make_client(tmp_path, instructions_file=str(tmp_path / "missing.md"))
+
+
+SPEED = [2, 1.75, 1.5, 1.25]
+
+
+def as_user(client: TestClient, name: str) -> TestClient:
+    other = TestClient(client.app)
+    login(other, name)
+    return other
+
+
+def test_first_correct_answers_get_decreasing_multipliers(tmp_path):
+    first = make_client(tmp_path, SPEED)
+    login(first, "u1")
+    users = [first] + [as_user(first, f"u{i}") for i in range(2, 7)]
+    results = [answer(c, "q1", "192.168.1.4").json() for c in users]
+    assert [r["points"] for r in results] == [200, 175, 150, 125, 100, 100]
+    assert [r["position"] for r in results] == [1, 2, 3, 4, 5, 6]
+    assert [r["multiplier"] for r in results] == [2, 1.75, 1.5, 1.25, 1, 1]
+
+
+def test_multiplier_applies_after_penalty_and_rounds_half_up(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    answer(c, "q1", "10.0.0.1")
+    r = answer(c, "q1", "192.168.1.4").json()
+    assert r["points"] == 150  # (100 - 25) * 2
+    luis = as_user(c, "luis")
+    answer(luis, "q1", "10.0.0.1")
+    assert answer(luis, "q1", "192.168.1.4").json()["points"] == 131  # 75 * 1.75 = 131.25
+
+
+def test_wrong_answers_do_not_take_a_position(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    answer(c, "q1", "10.0.0.1")
+    luis = as_user(c, "luis")
+    assert answer(luis, "q1", "192.168.1.4").json()["position"] == 1
+
+
+def test_positions_are_counted_per_question(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    answer(c, "q1", "192.168.1.4")
+    luis = as_user(c, "luis")
+    answer(luis, "q1", "192.168.1.4")
+    assert answer(luis, "q2", "192.168.1.5").json()["position"] == 1
+    assert answer(c, "q2", "192.168.1.5").json()["position"] == 2
+
+
+def test_state_shows_how_many_solved_and_next_multiplier(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    q1 = c.get("/api/state").json()["questions"][0]
+    assert q1["solved_by"] == 0 and q1["next_multiplier"] == 2
+    answer(as_user(c, "luis"), "q1", "192.168.1.4")
+    q1 = c.get("/api/state").json()["questions"][0]
+    assert q1["solved_by"] == 1 and q1["next_multiplier"] == 1.75
+
+
+def test_state_reports_own_position_and_multiplier(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(as_user(c, "luis"), "luis")
+    answer(as_user(c, "luis"), "q1", "192.168.1.4")
+    login(c, "ana")
+    answer(c, "q1", "192.168.1.4")
+    q1 = c.get("/api/state").json()["questions"][0]
+    assert q1["position"] == 2 and q1["multiplier"] == 1.75 and q1["points"] == 175
+
+
+def test_max_points_include_the_top_multiplier(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    assert c.get("/api/state").json()["questions"][0]["max_points"] == 200
+
+
+def test_without_multipliers_scoring_is_unchanged(tmp_path):
     c = make_client(tmp_path)
     login(c, "ana")
-    assert c.get("/api/state").json()["capture_download"] is False
-    assert c.get("/api/capture").status_code == 404
+    r = answer(c, "q1", "192.168.1.4").json()
+    assert r["points"] == 100 and r["multiplier"] == 1 and r["position"] == 1
 
 
-def test_missing_capture_file_fails_at_start(tmp_path):
-    with pytest.raises(RuntimeError):
-        make_client(tmp_path, capture_file=str(tmp_path / "missing.pcap"))
+def test_ranking_breaks_ties_by_who_finished_first(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    luis = as_user(c, "luis")
+    answer(luis, "q1", "192.168.1.4")
+    answer(c, "q1", "192.168.1.4")
+    names = [e["name"] for e in c.get("/api/ranking").json()["entries"]]
+    assert names == ["luis", "ana"]
+
+
+def test_ranking_includes_recent_correct_answers(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    answer(c, "q1", "192.168.1.4")
+    luis = as_user(c, "luis")
+    answer(luis, "q1", "10.0.0.1")
+    answer(luis, "q1", "192.168.1.4")
+    recent = c.get("/api/ranking").json()["recent"]
+    assert recent == [
+        {"name": "luis", "question": 1, "position": 2, "points": 131},
+        {"name": "ana", "question": 1, "position": 1, "points": 200},
+    ]
+
+
+@pytest.mark.parametrize("bad", [[0.5], ["x"], 2, [2, -1]])
+def test_invalid_speed_multipliers_are_rejected(tmp_path, bad):
+    cfg = json.loads(ANSWERS.read_text())
+    cfg["speed_multipliers"] = bad
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError):
+        quiz.load_quiz(path)
+
+
+def test_state_exposes_the_multiplier_scale(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    assert c.get("/api/state").json()["speed_multipliers"] == SPEED

@@ -223,9 +223,11 @@ class _FakeSession:
         return _FakeScalars(list(self.captures.values()))
 
 
-def _capture(owner: str | None) -> Capture:
+def _capture(owner: str | None, *, shared: bool = False) -> Capture:
     t = datetime(2026, 1, 1, tzinfo=UTC)
-    return Capture(id=uuid.uuid4(), file_path=f"/data/{owner}.pcap", event_start=t, event_end=t, owner=owner)
+    return Capture(
+        id=uuid.uuid4(), file_path=f"/data/{owner}.pcap", event_start=t, event_end=t, owner=owner, shared=shared
+    )
 
 
 @pytest.fixture
@@ -276,3 +278,46 @@ async def test_single_user_mode_sees_every_capture(catalog: tuple[_FakeSession, 
     assert await get_pcaps.get_capture_file_path(bob_capture.id) == bob_capture.file_path
     await get_pcaps.list_captures()
     assert session.statements[-1].whereclause is None
+
+
+@pytest.fixture
+def shared_capture(catalog: tuple[_FakeSession, Capture, Capture]) -> Capture:
+    session, _, _ = catalog
+    capture = _capture(None, shared=True)
+    session.captures[capture.id] = capture
+    return capture
+
+
+@pytest.mark.usefixtures("multi_user")
+async def test_every_user_resolves_a_shared_capture(shared_capture: Capture) -> None:
+    for user in (ALICE, BOB):
+        async with acting_as(user):
+            assert await get_pcaps.get_capture_file_path(shared_capture.id) == shared_capture.file_path
+
+
+@pytest.mark.usefixtures("multi_user")
+async def test_shared_capture_does_not_resolve_outside_a_chat(shared_capture: Capture) -> None:
+    with pytest.raises(CaptureNotFoundError):
+        await get_pcaps.get_capture_file_path(shared_capture.id)
+
+
+@pytest.mark.usefixtures("multi_user")
+async def test_unowned_capture_that_is_not_shared_stays_hidden(catalog: tuple[_FakeSession, Capture, Capture]) -> None:
+    session, _, _ = catalog
+    legacy = _capture(None)
+    session.captures[legacy.id] = legacy
+
+    async with acting_as(ALICE):
+        with pytest.raises(CaptureNotFoundError):
+            await get_pcaps.get_capture_file_path(legacy.id)
+
+
+@pytest.mark.usefixtures("multi_user")
+async def test_list_captures_includes_shared_captures(catalog: tuple[_FakeSession, Capture, Capture]) -> None:
+    session, _, _ = catalog
+
+    async with acting_as(ALICE):
+        await get_pcaps.list_captures()
+
+    compiled = str(session.statements[-1].compile(compile_kwargs={"literal_binds": True}))
+    assert "captures.owner = 'alice-id' OR captures.shared IS true" in compiled

@@ -22,18 +22,17 @@ interno: si el navegador muestra un aviso de seguridad, aceptadlo para continuar
 
 ### Chat con el asistente VIGILANT
 
-- **URL de acceso:** `https://<DEMO_HOST>`
+- **URL de acceso:** <https://172.25.203.122>
 - **Autenticación:** con el usuario asignado a cada participante.
-- **Captura:** descargad la captura desde el formulario de respuestas (enlace
-  *descarga la captura*) y adjuntadla en el chat al empezar la conversación. Haced
-  todas las preguntas en esa misma conversación.
+- **Identificación de la traza:** para preguntar sobre la captura, indicad al asistente el
+  siguiente ID de traza: `12d3d2ca-8bf4-43ce-afb8-7d54dca7beab`
 - **Uso:** escribid vuestras preguntas en lenguaje natural. El asistente analizará la traza
-  adjunta y responderá en base al contenido del PCAP y de los logs asociados.
+  referenciada y responderá en base al contenido del PCAP y de los logs asociados.
   Toda respuesta que se utilice en el formulario debe provenir del chat.
 
 ### Formulario de respuestas
 
-- **URL de acceso:** `https://<DEMO_HOST>:9443`
+- **URL de acceso:** <https://172.25.203.122:9443/>
 - **Autenticación:** con el mismo usuario asignado.
 - **Envío:** cada participante rellena sus respuestas directamente en el formulario. El
   sistema valida los intentos y calcula la puntuación automáticamente.
@@ -44,11 +43,15 @@ interno: si el navegador muestra un aviso de seguridad, aceptadlo para continuar
   del asistente VIGILANT en el chat. Queda prohibido el uso de analizadores de PCAP
   externos, buscadores u otras fuentes.
 - **Intentos por pregunta:** cada pregunta tiene un **límite de 3 intentos**.
-- **Penalización:** cada respuesta incorrecta **resta puntos** sobre la puntuación máxima
-  disponible de esa pregunta.
-- **Puntuación final:** se calcula de forma automática en función del número de aciertos
-  y de los intentos consumidos.
-- **Ranking:** se puede consultar el **ranking de usuarios** desde el propio formulario,
-  para comparar resultados con el resto de participantes.
+- **Penalización:** cada pregunta vale 100 puntos y cada respuesta incorrecta **resta 25**
+  (mínimo 25 si se acaba acertando).
+- **Bonus por rapidez:** en cada pregunta, quien acierta antes que el resto multiplica sus
+  puntos: la **1ª persona ×2**, la 2ª ×1,75, la 3ª ×1,5, la 4ª ×1,25 y el resto ×1. El
+  formulario muestra cuántas personas han resuelto ya cada pregunta y qué multiplicador queda.
+- **Puntuación final:** se calcula de forma automática en función de los aciertos, los
+  intentos consumidos y la rapidez. Gana quien más puntos tenga; en caso de empate, quien
+  terminó antes.
+- **Ranking:** se puede consultar en directo el **ranking de usuarios** y los últimos
+  aciertos desde el propio formulario, para comparar resultados con el resto de participantes.
 - **Uso individual:** cada participante trabaja con su propio usuario; no se permite
   compartir cuentas ni respuestas entre participantes.

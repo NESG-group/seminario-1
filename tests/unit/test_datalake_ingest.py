@@ -61,3 +61,26 @@ async def test_ingest_capture_to_datalake_rejects_empty_pcap(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="no packets"):
         await ingest_capture_to_datalake(session, empty_pcap, capture_id=uuid.uuid4())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_ingest_capture_to_datalake_is_private_by_default() -> None:
+    session = FakeSession()
+
+    capture = await ingest_capture_to_datalake(  # type: ignore[arg-type]
+        session, DATA_PCAPS / "arp-icmp.pcapng", capture_id=uuid.uuid4()
+    )
+
+    assert capture.shared is False
+
+
+@pytest.mark.asyncio
+async def test_ingest_capture_to_datalake_can_mark_capture_as_shared() -> None:
+    session = FakeSession()
+
+    capture = await ingest_capture_to_datalake(  # type: ignore[arg-type]
+        session, DATA_PCAPS / "arp-icmp.pcapng", capture_id=uuid.uuid4(), shared=True
+    )
+
+    assert capture.shared is True
+    assert capture.owner is None

@@ -105,7 +105,7 @@ proxy (Caddy) and LDAP login (a bundled [LLDAP](https://github.com/lldap/lldap)
 server) on top of the setup above, plus the [seminar quiz](#seminar-quiz).
 Only the proxy listens on the network (ports 80/443 for the chat, 9443 for the
 quiz (`QUIZ_PORT`)); everything else stays on `127.0.0.1`. Each user sees only the
-captures they uploaded, and every audit record names the user.
+captures they uploaded plus the shared ones, and every audit record names the user.
 
 ```bash
 make multiuser-env      # adds secrets and DEMO_HOST (this machine's IP) to .env
@@ -141,8 +141,9 @@ tools are called by Hermes, not by the user, so the backend runs one chat at a
 time and the tools filter by the user of the running chat
 ([requester.py](src/demo/services/requester.py)). Ollama answers one request
 at a time anyway, so this costs no throughput. Nothing the model sees changes.
-Captures stored before multi-user mode have no owner and are not shown to
-anyone in this mode.
+Captures uploaded with `shared=true` (`make share-capture`) are visible to every
+user. Captures stored before multi-user mode have no owner and, unless shared,
+are not shown to anyone in this mode.
 
 ## Development
 
@@ -165,10 +166,23 @@ starting.
 In multi-user mode `make up-multiuser` also starts the quiz at
 `https://<DEMO_HOST>:9443`. It logs users in against the same LDAP server, with
 the same service account and search as Open WebUI, so every participant uses
-the same username and password for the chat and for the quiz. Since each user
-only sees the captures they uploaded, the quiz offers `CryLock_final.pcap` for
-download and each participant attaches it to their own chat. LDAP users listed
+the same username and password for the chat and for the quiz. LDAP users listed
 in `QUIZ_ADMIN_USERS` (default `admin`) can download the results as CSV.
+`make quiz-reset` empties the quiz (attempts, points and ranking) after you type
+`reset`; sessions stay open, so participants only need to reload the page.
+
+The seminar capture lives in the datalake as a **shared** capture, which every
+user can query in multi-user mode, so participants never get the file:
+
+```bash
+make share-capture      # uploads data/CryLock_final.pcap with shared=true, prints its capture_id
+```
+
+Put that `capture_id` in `quiz/answers.json` and in the instructions, then
+rebuild the quiz (`make up-multiuser`). The quiz shows it and adds it to the
+text copied into the chat. `SHARED_CAPTURE=<file>` shares another capture.
 
 The instructions handed to participants are in
-[docs/instrucciones-seminario-1.md](docs/instrucciones-seminario-1.md).
+[docs/instrucciones-seminario-1.md](docs/instrucciones-seminario-1.md). The quiz
+publishes them, without login, at `https://<DEMO_HOST>:9443/instrucciones` and
+links them from its login page; edits to the file show on the next reload.

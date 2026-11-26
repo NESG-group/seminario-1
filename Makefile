@@ -1,8 +1,8 @@
 OLLAMA_MODEL ?= qwen2.5:72b
 COMPOSE_MULTIUSER = docker compose -f docker-compose.yml -f docker-compose.dev-ui.yml -f docker-compose.multiuser.yml
 
-.PHONY: install dev test lint format env up up-ui ollama-model tokens down migrate migration \
-	multiuser-env up-multiuser multiuser-config down-multiuser
+.PHONY: install dev test lint format env up up-ui ollama-model share-capture tokens down migrate migration \
+	multiuser-env up-multiuser multiuser-config down-multiuser quiz-reset
 
 install:
 	uv sync
@@ -44,6 +44,11 @@ up-ui:
 ollama-model:
 	docker exec demo-ollama ollama pull $(OLLAMA_MODEL)
 
+# Upload a capture to the datalake visible to every user (multi-user mode); prints its capture_id.
+SHARED_CAPTURE ?= data/CryLock_final.pcap
+share-capture:
+	@curl -fsS -F "file=@$(SHARED_CAPTURE)" "http://127.0.0.1:8000/v1/datalake/ingest?shared=true"; echo
+
 tokens:
 	@docker exec -i demo-hermes python3 - $(or $(N),10) $(if $(ALL),--all) < scripts/hermes_tokens.py
 
@@ -71,3 +76,14 @@ multiuser-config:
 
 down-multiuser:
 	$(COMPOSE_MULTIUSER) down
+
+# Empty the seminar quiz (attempts, points, ranking) after typing 'reset'. Open sessions stay valid.
+# FORCE=1 skips the question.
+QUIZ_DB_PY = import sqlite3; db = sqlite3.connect('/data/quiz.db')
+quiz-reset:
+	@n=$$(docker exec demo-quiz python -c "$(QUIZ_DB_PY); print(db.execute('SELECT COUNT(*) FROM attempts').fetchone()[0])") || exit 1; \
+	if [ "$(FORCE)" != "1" ]; then \
+	  printf "This deletes %s quiz attempts (points and ranking). Type 'reset' to continue: " "$$n"; \
+	  read answer; [ "$$answer" = "reset" ] || { echo "Cancelled, nothing deleted"; exit 1; }; \
+	fi; \
+	docker exec demo-quiz python -c "$(QUIZ_DB_PY); print('Deleted', db.execute('DELETE FROM attempts').rowcount, 'attempts'); db.commit()"

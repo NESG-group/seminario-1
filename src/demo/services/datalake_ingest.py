@@ -16,6 +16,7 @@ async def ingest_capture_to_datalake(
     *,
     capture_id: uuid.UUID,
     owner: str | None = None,
+    shared: bool = False,
 ) -> Capture:
     """Compute the time window of the pcap at `pcap_path` and persist a
     `Capture` row referencing it.
@@ -47,6 +48,7 @@ async def ingest_capture_to_datalake(
         event_start=event_start,
         event_end=event_end,
         owner=owner,
+        shared=shared,
     )
     session.add(capture)
     await session.flush()

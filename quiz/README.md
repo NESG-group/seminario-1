@@ -6,6 +6,12 @@ Formulario web con login LDAP + backend que valida las respuestas y mantiene un 
 - El usuario entra con su usuario/contraseña LDAP.
 - Ve las 5 preguntas de forma progresiva: la siguiente se desbloquea al acertar la anterior
 - Puntuación: 100 puntos por pregunta, −25 por cada fallo (mínimo 25), máximo 3 intentos.
+- Bonus por rapidez (`speed_multipliers` en `answers.json`): en cada pregunta, la 1ª persona
+  en acertar multiplica ×2, la 2ª ×1,75, la 3ª ×1,5, la 4ª ×1,25 y el resto ×1 (sin la
+  clave, no hay bonus). El orden lo decide la llegada al servidor. Empate a puntos: gana
+  quien terminó antes.
+- Ranking en directo con podio y feed de últimos aciertos; animaciones al acertar/fallar
+  (se desactivan con *reducir movimiento* del sistema).
 - El backend compara con `answers.json` (las respuestas nunca llegan al navegador).
 - Ranking en `/api/ranking` (se muestra en la web). CSV para admins en `/api/admin/results.csv`.
 
@@ -24,9 +30,10 @@ Open WebUI: los participantes entran con el mismo usuario y contraseña que en e
 Toda la configuración sale del `.env` raíz (`QUIZ_SECRET_KEY` lo crea `make multiuser-env`)
 y de `docker-compose.multiuser.yml`; el `.env` de esta carpeta no se usa.
 
-Cada usuario solo ve en el chat las capturas que ha subido él, así que `capture_id` va
-vacío en `answers.json`: el quiz ofrece la captura para descargar (`CAPTURE_FILE`) y cada
-participante la adjunta en su chat.
+La captura del seminario está en el datalake como compartida (`make share-capture` en la
+raíz), visible para todos los usuarios del chat. Su ID va en `capture_id` de `answers.json`:
+el quiz lo muestra y lo añade al texto que se copia al chat. Si se vuelve a subir la captura,
+cambia el ID: actualízalo en `answers.json` y en las instrucciones, y reconstruye el quiz.
 
 ## Con LDAP y Docker (independiente)
 ```bash

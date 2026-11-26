@@ -13,12 +13,13 @@ class IngestResponseModel(BaseModel):
     capture_id: str
     event_start: str
     event_end: str
+    shared: bool
 
 
 @datalake_router.post("/ingest", response_model=IngestResponseModel)
-async def ingest_pcap_to_datalake(file: UploadFile) -> IngestResponseModel:
+async def ingest_pcap_to_datalake(file: UploadFile, shared: bool = False) -> IngestResponseModel:
     """Accept a pcap/pcapng upload, stage it on disk, and register it in the
-    datalake catalog."""
+    datalake catalog. With ``shared=true`` every user can query it in multi-user mode."""
     if not looks_like_pcap(file.filename, file.content_type):
         raise HTTPException(status_code=400, detail="File does not look like a pcap/pcapng capture.")
 
@@ -27,7 +28,7 @@ async def ingest_pcap_to_datalake(file: UploadFile) -> IngestResponseModel:
         raise HTTPException(status_code=400, detail="Empty file.")
 
     try:
-        capture = await ingest_pcap_bytes(data)
+        capture = await ingest_pcap_bytes(data, shared=shared)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -35,4 +36,5 @@ async def ingest_pcap_to_datalake(file: UploadFile) -> IngestResponseModel:
         capture_id=str(capture.id),
         event_start=capture.event_start.isoformat(),
         event_end=capture.event_end.isoformat(),
+        shared=bool(capture.shared),
     )

@@ -6,6 +6,7 @@
   "base_points": 100,
   "penalty_per_wrong": 25,
   "min_points": 25,
+  "speed_multipliers": [2, 1.75, 1.5, 1.25],
   "questions": [
     {
       "id": "q1",

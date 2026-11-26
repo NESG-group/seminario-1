@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from demo.db.models import Capture
 from demo.db.session import get_session
@@ -35,10 +35,19 @@ def _visible_owner() -> str | None | object:
     return _NO_OWNER if requester is None else requester.user_id
 
 
+def _is_visible(capture: Capture, owner: str | None | object) -> bool:
+    if owner is None:
+        return True
+    if owner is _NO_OWNER:
+        return False
+    return capture.shared or capture.owner == owner
+
+
 async def get_capture_file_path(capture_id: uuid.UUID) -> str:
     """Resolve the on-disk path of a registered capture.
 
-    In multi-user mode only captures of the user whose chat is running resolve.
+    In multi-user mode only shared captures and those of the user whose chat
+    is running resolve.
 
     Raises:
         CaptureNotFoundError: if `capture_id` has no catalog row, or it belongs
@@ -47,7 +56,7 @@ async def get_capture_file_path(capture_id: uuid.UUID) -> str:
     owner = _visible_owner()
     async with get_session() as session:
         capture = await session.get(Capture, capture_id)
-    if capture is None or (owner is not None and capture.owner != owner):
+    if capture is None or not _is_visible(capture, owner):
         raise CaptureNotFoundError(f"No capture found with id {capture_id}.")
     return str(capture.file_path)
 
@@ -61,7 +70,7 @@ async def list_captures(
 
     Omitting both returns every capture. Omitting one bound leaves that
     side open (e.g. start=None means "any capture ending before `end`").
-    In multi-user mode only the captures of the user whose chat is running.
+    In multi-user mode only shared captures and those of the user whose chat is running.
     """
     owner = _visible_owner()
     if owner is _NO_OWNER:
@@ -69,7 +78,7 @@ async def list_captures(
     async with get_session() as session:
         stmt = select(Capture).order_by(Capture.event_start.desc())
         if owner is not None:
-            stmt = stmt.where(Capture.owner == owner)
+            stmt = stmt.where(or_(Capture.owner == owner, Capture.shared.is_(True)))
         if start is not None:
             stmt = stmt.where(Capture.event_end >= start)
         if end is not None:
