@@ -27,7 +27,6 @@ from typing import Final, Literal
 from pydantic import BaseModel
 
 from demo.mcp.tools.get_pcaps import get_capture_file_path
-from demo.services.requester import current_requester
 
 _TSHARK: Final[str] = "tshark"
 _TIMEOUT_S: Final[float] = 120.0

@@ -79,10 +79,8 @@ If it fails, look at `docker logs demo-hermes` and
 1. Open http://localhost:3000. The first time, Open WebUI asks you to create
    an admin account; it is local to your machine.
 2. Pick the `hermes-agent` model.
-3. Attach [`data/demo/raw/nmap22-23-53-80-443-threewayhandshake.pcapng`](data/README.md)
-   to the chat and ask one of the questions in
-   [data/demo/scenarios.md](data/demo/scenarios.md), the scenarios used in the
-   paper. That file also has the expected answers.
+3. Attach [`data/CryLock_final.pcap`](data/README.md), the seminar capture,
+   to the chat and ask the questions of the [quiz](quiz/README.md).
 
 To see which views the model applied (one line per view call, written by the
 backend whatever the model says):
@@ -104,8 +102,9 @@ To stop everything: `make down`. Data and the model stay in Docker volumes.
 
 [docker-compose.multiuser.yml](docker-compose.multiuser.yml) adds an HTTPS
 proxy (Caddy) and LDAP login (a bundled [LLDAP](https://github.com/lldap/lldap)
-server) on top of the setup above. Only the proxy listens on the network
-(ports 80/443); everything else stays on `127.0.0.1`. Each user sees only the
+server) on top of the setup above, plus the [seminar quiz](#seminar-quiz).
+Only the proxy listens on the network (ports 80/443 for the chat, 9443 for the
+quiz (`QUIZ_PORT`)); everything else stays on `127.0.0.1`. Each user sees only the
 captures they uploaded, and every audit record names the user.
 
 ```bash
@@ -154,3 +153,22 @@ make test lint
 
 The sensor, the ingest-time actor analysis and the evaluation scripts of the
 full project are intentionally not part of this repository.
+
+## Seminar quiz
+
+[quiz/](quiz/README.md) is a web form (FastAPI) with the questions asked during
+the seminar about `data/CryLock_final.pcap`. It checks each answer on the
+server and keeps a ranking. The real answers live in `quiz/answers.json`, which
+is not committed; copy `quiz/answers.example.json` and fill it in before
+starting.
+
+In multi-user mode `make up-multiuser` also starts the quiz at
+`https://<DEMO_HOST>:9443`. It logs users in against the same LDAP server, with
+the same service account and search as Open WebUI, so every participant uses
+the same username and password for the chat and for the quiz. Since each user
+only sees the captures they uploaded, the quiz offers `CryLock_final.pcap` for
+download and each participant attaches it to their own chat. LDAP users listed
+in `QUIZ_ADMIN_USERS` (default `admin`) can download the results as CSV.
+
+The instructions handed to participants are in
+[docs/instrucciones-seminario-1.md](docs/instrucciones-seminario-1.md).

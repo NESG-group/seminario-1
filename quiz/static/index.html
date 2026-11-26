@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz de la demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #667085; --line: #e2e6ec;
+    --accent: #2f5bea; --ok: #1a7f4b; --ok-bg: #e6f4ec; --bad: #b42318; --bad-bg: #fdecea;
+    --lock: #98a2b3; --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --card: #1c2027; --text: #e8ebf0; --muted: #98a2b3; --line: #2b313b;
+            --accent: #7b9cff; --ok: #4cc38a; --ok-bg: #16281f; --bad: #ff8b7e; --bad-bg: #2c1a18; --lock: #667085; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 860px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
+  .bar h1 { font-size: 17px; margin: 0; flex: 1; }
+  .who { color: var(--muted); font-size: 13px; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 7px 14px;
+         border-radius: 999px; cursor: pointer; font: inherit; }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; }
+  .card.locked { opacity: .6; }
+  .head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .num { font-weight: 600; }
+  .chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.solved { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  .chip.failed { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+  .pts { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .qtext { white-space: pre-wrap; margin: 6px 0 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type=text], input[type=password] { flex: 1; min-width: 180px; padding: 9px 11px; border-radius: 8px;
+         border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  button.primary, button.ghost { padding: 9px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin-top: 8px; font-size: 14px; min-height: 1.2em; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  tr.me td { background: var(--ok-bg); }
+  .login { max-width: 360px; margin: 60px auto; }
+  .login h2 { margin-top: 0; }
+  .login .row { flex-direction: column; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <h1 id="title">Quiz de la demo</h1>
+  <span class="who" id="who"></span>
+  <a id="csv" href="/api/admin/results.csv" hidden>CSV</a>
+  <button class="ghost" id="logout" hidden>Salir</button>
+</div></header>
+
+<main>
+  <section id="login-view" class="card login" hidden>
+    <h2>Iniciar sesión</h2>
+    <p class="hint">Usa tu usuario y contraseña de LDAP.</p>
+    <form id="login-form" class="row">
+      <input type="text" id="u" placeholder="Usuario" autocomplete="username" required>
+      <input type="password" id="p" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="primary" type="submit">Entrar</button>
+    </form>
+    <div class="msg bad" id="login-msg"></div>
+  </section>
+
+  <section id="app-view" hidden>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-q" aria-selected="true">Preguntas</button>
+      <button class="tab" role="tab" id="tab-r" aria-selected="false">Ranking</button>
+    </div>
+
+    <div id="questions-pane">
+      <p class="hint">Haz cada pregunta al asistente en el chat, copiando el texto con el botón, y escribe aquí la respuesta que consideres correcta. Las preguntas se desbloquean en orden.
+        <a id="chat-link" target="_blank" rel="noopener" hidden>Abrir el chat</a></p>
+      <p class="hint" id="capture-hint" hidden>Antes de empezar, <a href="/api/capture" download>descarga la captura</a> y adjúntala en el chat con tu mismo usuario.</p>
+      <div id="total" class="hint"></div>
+      <div id="questions"></div>
+    </div>
+
+    <div id="ranking-pane" hidden>
+      <div class="card"><table>
+        <thead><tr><th>#</th><th>Participante</th><th>Puntos</th><th>Resueltas</th></tr></thead>
+        <tbody id="ranking-body"></tbody>
+      </table></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let state = null, rankingTimer = null;
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      credentials: "same-origin",
+      headers: options.body ? { "Content-Type": "application/json" } : {},
+      ...options,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* respuesta sin JSON */ }
+    if (!res.ok) {
+      const err = new Error((data && data.detail) || "Error " + res.status);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function show(view) {
+    $("login-view").hidden = view !== "login";
+    $("app-view").hidden = view !== "app";
+    $("logout").hidden = view !== "app";
+    if (view !== "app") { $("who").textContent = ""; $("csv").hidden = true; }
+  }
+
+  function chip(status) {
+    const map = { locked: "Bloqueada", open: "Abierta", solved: "Resuelta", failed: "Sin intentos" };
+    const el = document.createElement("span");
+    el.className = "chip " + status;
+    el.textContent = map[status] || status;
+    return el;
+  }
+
+  function renderQuestions() {
+    const box = $("questions");
+    box.replaceChildren();
+    $("total").textContent = "Puntos: " + state.total_points;
+    for (const q of state.questions) {
+      const card = document.createElement("div");
+      card.className = "card" + (q.status === "locked" ? " locked" : "");
+
+      const head = document.createElement("div");
+      head.className = "head";
+      const num = document.createElement("span");
+      num.className = "num";
+      num.textContent = "Pregunta " + q.number;
+      const pts = document.createElement("span");
+      pts.className = "pts";
+      pts.textContent = q.status === "solved" ? "+" + q.points + " pts" : "hasta " + q.max_points + " pts";
+      head.append(num, chip(q.status), pts);
+      card.append(head);
+
+      if (q.status === "locked") {
+        const p = document.createElement("div");
+        p.className = "hint";
+        p.textContent = "Responde antes la pregunta anterior (o agota sus intentos).";
+        card.append(p);
+      } else {
+        const text = document.createElement("div");
+        text.className = "qtext";
+        text.textContent = q.text;
+        card.append(text);
+
+        const copy = document.createElement("button");
+        copy.className = "ghost";
+        copy.type = "button";
+        copy.textContent = "Copiar para el chat";
+        copy.addEventListener("click", async () => {
+          const prompt = state.capture_id ? "capture_id " + state.capture_id + "\n" + q.text : q.text;
+          try { await navigator.clipboard.writeText(prompt); copy.textContent = "Copiado"; }
+          catch (_) { window.prompt("Copia este texto:", prompt); }
+          setTimeout(() => (copy.textContent = "Copiar para el chat"), 1500);
+        });
+
+        if (q.status === "open") {
+          const form = document.createElement("form");
+          form.className = "row";
+          const input = document.createElement("input");
+          input.type = "text";
+          input.required = true;
+          input.maxLength = 100;
+          input.placeholder = q.type === "ip" ? "Ej.: 192.168.1.10" : q.type === "port" ? "Ej.: 8080" : q.type === "frame" ? "Ej.: 1234" : "Tu respuesta";
+          input.autocomplete = "off";
+          const send = document.createElement("button");
+          send.className = "primary";
+          send.type = "submit";
+          send.textContent = "Enviar (" + q.attempts_left + " intentos)";
+          const msg = document.createElement("div");
+          msg.className = "msg";
+          form.append(input, send);
+          form.addEventListener("submit", async (ev) => {
+            ev.preventDefault();
+            send.disabled = true;
+            try {
+              const r = await api("/api/answer", { method: "POST", body: JSON.stringify({ question_id: q.id, answer: input.value }) });
+              if (r.correct) { msg.className = "msg ok"; msg.textContent = "¡Correcto! +" + r.points + " puntos"; }
+              else if (r.attempts_left > 0) { msg.className = "msg bad"; msg.textContent = "No es correcta. Te quedan " + r.attempts_left + " intentos."; }
+              else { msg.className = "msg bad"; msg.textContent = "No es correcta y no te quedan intentos."; }
+              setTimeout(loadState, r.correct || r.attempts_left === 0 ? 900 : 1200);
+            } catch (e) {
+              msg.className = "msg bad";
+              msg.textContent = e.message;
+              send.disabled = false;
+              if (e.status === 401) location.reload();
+            }
+          });
+          const wrap = document.createElement("div");
+          wrap.className = "row";
+          wrap.style.marginBottom = "10px";
+          wrap.append(copy);
+          card.append(wrap, form, msg);
+        } else {
+          const wrap = document.createElement("div");
+          wrap.className = "row";
+          wrap.append(copy);
+          card.append(wrap);
+        }
+      }
+      box.append(card);
+    }
+  }
+
+  async function loadState() {
+    state = await api("/api/state");
+    $("title").textContent = state.title;
+    const link = $("chat-link");
+    if (state.chat_url) { link.href = state.chat_url; link.hidden = false; }
+    $("capture-hint").hidden = !state.capture_download;
+    renderQuestions();
+  }
+
+  async function loadRanking() {
+    const data = await api("/api/ranking");
+    const body = $("ranking-body");
+    body.replaceChildren();
+    if (!data.entries.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 4;
+      td.className = "hint";
+      td.textContent = "Todavía no hay participantes.";
+      tr.append(td);
+      body.append(tr);
+      return;
+    }
+    for (const e of data.entries) {
+      const tr = document.createElement("tr");
+      if (e.me) tr.className = "me";
+      for (const value of [e.rank, e.name, e.points, e.solved + " / " + data.total_questions]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+  }
+
+  function selectTab(which) {
+    const q = which === "q";
+    $("tab-q").setAttribute("aria-selected", q);
+    $("tab-r").setAttribute("aria-selected", !q);
+    $("questions-pane").hidden = !q;
+    $("ranking-pane").hidden = q;
+    clearInterval(rankingTimer);
+    if (!q) {
+      loadRanking().catch(() => {});
+      rankingTimer = setInterval(() => loadRanking().catch(() => {}), 10000);
+    } else {
+      loadState().catch(() => {});
+    }
+  }
+
+  async function enter(me) {
+    $("who").textContent = me.display_name;
+    $("csv").hidden = !me.is_admin;
+    show("app");
+    selectTab("q");
+  }
+
+  $("login-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("login-msg").textContent = "";
+    try {
+      const me = await api("/api/login", { method: "POST", body: JSON.stringify({ username: $("u").value, password: $("p").value }) });
+      $("p").value = "";
+      await enter(me);
+    } catch (e) { $("login-msg").textContent = e.message; }
+  });
+  $("logout").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" }).catch(() => {});
+    clearInterval(rankingTimer);
+    show("login");
+  });
+  $("tab-q").addEventListener("click", () => selectTab("q"));
+  $("tab-r").addEventListener("click", () => selectTab("r"));
+
+  api("/api/me").then(enter).catch(() => show("login"));
+})();
+</script>
+</body>
+</html>

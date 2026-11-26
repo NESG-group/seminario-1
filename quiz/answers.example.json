@@ -1,0 +1,41 @@
+{
+  "title": "CryLock: análisis con el asistente",
+  "chat_url": "http://localhost:3000",
+  "capture_id": "",
+  "max_attempts": 3,
+  "base_points": 100,
+  "penalty_per_wrong": 25,
+  "min_points": 25,
+  "questions": [
+    {
+      "id": "q1",
+      "type": "ip",
+      "text": "What is the IP address of the infected machine?",
+      "answer": "CAMBIAR"
+    },
+    {
+      "id": "q2",
+      "type": "ip",
+      "text": "What is the IP of the file server being encrypted?",
+      "answer": "CAMBIAR"
+    },
+    {
+      "id": "q3",
+      "type": "port",
+      "text": "What port did the infected machine connect to on the file server?",
+      "answer": "CAMBIAR"
+    },
+    {
+      "id": "q4",
+      "type": "frame",
+      "text": "The infected machine is {q1} and the file server is {q2}. What is the number of the first frame of the SMB (port {q3}) connection between them?",
+      "answer": "CAMBIAR"
+    },
+    {
+      "id": "q5",
+      "type": "port",
+      "text": "On the frame {q4}, the infected machine {q1} connects to the file server {q2} on destination port {q3}. What source port does the client use in that connection?",
+      "answer": "CAMBIAR"
+    }
+  ]
+}

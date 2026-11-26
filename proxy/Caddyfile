@@ -13,3 +13,9 @@
 		flush_interval -1
 	}
 }
+
+# Seminar quiz, same host on another port (it shares /api paths with Open WebUI).
+{$DEMO_HOST}:{$QUIZ_PORT:9443} {
+	tls internal
+	reverse_proxy quiz:8080
+}

@@ -4,8 +4,9 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev-ui.yml \
 #                  -f docker-compose.multiuser.yml up -d
 #
-# Only the proxy listens on the network (80/443). LLDAP's admin page and the
-# other services stay on 127.0.0.1. To use another LDAP server instead of the
+# Only the proxy listens on the network (80/443 for the chat, QUIZ_PORT, 9443 by
+# default, for the seminar quiz). LLDAP's admin page and the other services stay on 127.0.0.1.
+# The quiz logs users in against the same LDAP as Open WebUI. To use another LDAP server instead of the
 # bundled LLDAP, set the LDAP_* variables in .env (see env.example).
 services:
   proxy:
@@ -15,14 +16,17 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "${QUIZ_PORT:-9443}:${QUIZ_PORT:-9443}"
     environment:
       - DEMO_HOST=${DEMO_HOST:?set DEMO_HOST in .env (the name or IP users type in the browser)}
+      - QUIZ_PORT=${QUIZ_PORT:-9443}
     volumes:
       - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Keeps Caddy's internal CA, so the certificate users trust survives restarts.
       - caddy-data:/data
     depends_on:
       - open-webui
+      - quiz
     networks:
       - demo-net
     restart: always
@@ -70,6 +74,35 @@ services:
       - ENABLE_FORWARD_USER_INFO_HEADERS=true
       - FORWARD_USER_INFO_HEADER_JWT_SECRET=${USER_JWT_SECRET:?set USER_JWT_SECRET in .env (make multiuser-env)}
 
+  quiz:
+    build: ./quiz
+    container_name: demo-quiz
+    environment:
+      - AUTH_MODE=ldap
+      - SECRET_KEY=${QUIZ_SECRET_KEY:?set QUIZ_SECRET_KEY in .env (make multiuser-env)}
+      # Same LDAP server, service account and search as Open WebUI, so users log in
+      # to the quiz with the same username and password as to the chat.
+      - LDAP_URL=${QUIZ_LDAP_URL:-ldap://${LDAP_SERVER_HOST:-lldap}:${LDAP_SERVER_PORT:-3890}}
+      - LDAP_BIND_DN=${LDAP_APP_DN:-uid=admin,ou=people,dc=demo,dc=local}
+      - LDAP_BIND_PASSWORD=${LDAP_APP_PASSWORD:-${LLDAP_ADMIN_PASSWORD}}
+      - LDAP_BASE_DN=${LDAP_SEARCH_BASE:-ou=people,dc=demo,dc=local}
+      - LDAP_SEARCH_FILTER=(&(${LDAP_ATTRIBUTE_FOR_USERNAME:-uid}={username})${LDAP_SEARCH_FILTERS:-})
+      - LDAP_DISPLAY_ATTR=${QUIZ_LDAP_DISPLAY_ATTR:-cn}
+      - ADMIN_USERS=${QUIZ_ADMIN_USERS:-admin}
+      - COOKIE_SECURE=true
+      - CHAT_URL=https://${DEMO_HOST}
+      - CAPTURE_FILE=/srv/quiz/capture/CryLock_final.pcap
+      # Only reachable through the proxy: trust its X-Forwarded-For for the login throttle.
+      - FORWARDED_ALLOW_IPS=*
+    volumes:
+      - quiz-data:/data
+      - ./data/CryLock_final.pcap:/srv/quiz/capture/CryLock_final.pcap:ro
+    depends_on:
+      - lldap
+    networks:
+      - demo-net
+    restart: always
+
   demo-backend:
     environment:
       # Turns on multi-user mode: verified user per chat, captures per user.
@@ -78,3 +111,4 @@ services:
 volumes:
   caddy-data:
   lldap-data:
+  quiz-data:

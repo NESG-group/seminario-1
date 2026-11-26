@@ -1,7 +1,7 @@
 OLLAMA_MODEL ?= qwen2.5:72b
 COMPOSE_MULTIUSER = docker compose -f docker-compose.yml -f docker-compose.dev-ui.yml -f docker-compose.multiuser.yml
 
-.PHONY: install dev test lint format env up up-ui ollama-model ground-truth tokens down migrate migration \
+.PHONY: install dev test lint format env up up-ui ollama-model tokens down migrate migration \
 	multiuser-env up-multiuser multiuser-config down-multiuser
 
 install:
@@ -44,9 +44,6 @@ up-ui:
 ollama-model:
 	docker exec demo-ollama ollama pull $(OLLAMA_MODEL)
 
-ground-truth:
-	uv run --group ground-truth python scripts/ground_truth.py
-
 tokens:
 	@docker exec -i demo-hermes python3 - $(or $(N),10) $(if $(ALL),--all) < scripts/hermes_tokens.py
 
@@ -58,7 +55,7 @@ down:
 # Add the multi-user secrets and DEMO_HOST to an existing .env (keeps values already set).
 multiuser-env:
 	@test -e .env || { echo "No .env: run make env first"; exit 1; }
-	@for v in USER_JWT_SECRET LLDAP_JWT_SECRET LLDAP_KEY_SEED LLDAP_ADMIN_PASSWORD; do \
+	@for v in USER_JWT_SECRET LLDAP_JWT_SECRET LLDAP_KEY_SEED LLDAP_ADMIN_PASSWORD QUIZ_SECRET_KEY; do \
 	  grep -q "^$$v=" .env || echo "$$v=$$(openssl rand -hex 24)" >> .env; done
 	@grep -q '^DEMO_HOST=' .env || echo "DEMO_HOST=$$(hostname -I | cut -d' ' -f1)" >> .env
 	@grep '^DEMO_HOST=' .env

@@ -34,9 +34,6 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.8.0",
 ]
-ground-truth = [
-    "pyshark>=0.6",
-]
 
 [build-system]
 requires = ["hatchling"]
