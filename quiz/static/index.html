@@ -38,7 +38,22 @@
   .chip.solved { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
   .chip.failed { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
   .pts { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .qtext { white-space: pre-wrap; margin: 6px 0 12px; }
+  .qtext { white-space: pre-wrap; margin: 6px 0 12px; font-size: 16px; font-weight: 500; }
+  .chip.hint-used { background: var(--bronze-bg); color: var(--bronze); border-color: transparent; }
+  .hintbox { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: var(--bg); }
+  .hintbox .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .hintbox .prompt { white-space: pre-wrap; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 8px; }
+  .hintbox.enter { animation: rise .35s ease-out both; }
+  button.hint-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 8px; border-radius: 999px;
+                    font: 500 13px/1.4 inherit; cursor: pointer; color: var(--bronze); background: var(--bronze-bg);
+                    border: 1px solid color-mix(in srgb, var(--bronze) 30%, transparent); transition: transform .1s, box-shadow .2s; }
+  button.hint-btn:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 18%, transparent); }
+  button.hint-btn:hover svg { animation: glow 1.2s ease-in-out infinite; }
+  button.hint-btn:active { transform: scale(.96); }
+  button.hint-btn svg { width: 15px; height: 15px; flex: none; }
+  button.hint-btn .cost { opacity: .75; font-variant-numeric: tabular-nums; }
+  @keyframes glow { 0%,100% { filter: none; } 50% { filter: drop-shadow(0 0 3px var(--gold)); } }
+  button.link { background: none; border: 0; padding: 0 4px; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
   .race { font-size: 13px; color: var(--muted); margin: -4px 0 12px; display: flex; align-items: center; gap: 8px; }
   .race .mult { font-weight: 700; color: var(--accent); background: var(--accent-bg); border-radius: 6px; padding: 1px 7px;
                 font-variant-numeric: tabular-nums; }
@@ -166,9 +181,10 @@
         <div class="total"><span id="total">0</span><small>puntos</small></div>
         <div class="scale" id="scale" hidden></div>
       </div>
-      <p class="hint">Haz cada pregunta al asistente en el chat, copiando el texto con el botón, y escribe aquí la respuesta que consideres correcta. Las preguntas se desbloquean en orden. Cuanto antes aciertes respecto al resto, más multiplicas.
+      <p class="hint">Cada pregunta dice qué hay que averiguar: formula tú la pregunta al asistente en el chat y escribe aquí la respuesta. Si te atascas, la pista te da la pregunta exacta para copiar y pegar, pero <strong>resta <span id="hint-penalty">50</span> puntos</strong>. Las preguntas se desbloquean en orden y cuanto antes aciertes respecto al resto, más multiplicas.
         <a id="chat-link" target="_blank" rel="noopener" hidden>Abrir el chat</a></p>
-      <p class="hint" id="capture-hint" hidden>ID de la traza: <code id="capture-id"></code></p>
+      <p class="hint" id="capture-hint" hidden>ID de la traza (indícaselo al asistente): <code id="capture-id"></code>
+        <button class="link" type="button" id="copy-capture">Copiar</button></p>
       <div id="questions"></div>
     </div>
 
@@ -327,6 +343,59 @@
     box.append(el("span", "step", "resto ×1"));
   }
 
+  async function copyText(button, text, label) {
+    try { await navigator.clipboard.writeText(text); button.textContent = "Copiado"; }
+    catch (_) { window.prompt("Copia este texto:", text); }
+    setTimeout(() => (button.textContent = label), 1500);
+  }
+
+  function chatPrompt(text) {
+    return state.capture_id ? "capture_id " + state.capture_id + "\n" + text : text;
+  }
+
+  function hintBox(q, animate) {
+    const box = el("div", "hintbox" + (animate ? " enter" : ""));
+    const label = q.hint_used ? "Pista usada (−" + state.hint_penalty + " pts). Pregunta exacta para el chat:"
+      : "Pregunta exacta que se podía hacer al chat:";
+    box.append(el("div", "label", label), el("div", "prompt", q.hint));
+    const copy = el("button", "ghost", "Copiar para el chat");
+    copy.type = "button";
+    copy.addEventListener("click", () => copyText(copy, chatPrompt(q.hint), "Copiar para el chat"));
+    box.append(copy);
+    return box;
+  }
+
+  function hintButton(q, card) {
+    const penalty = state.hint_penalty;
+    const btn = el("button", "hint-btn");
+    btn.type = "button";
+    btn.title = "Muestra la pregunta exacta para copiar en el chat";
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+      + 'stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 22h4"/>'
+      + '<path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
+    btn.append(el("span", "", "Pista"), el("span", "cost", "−" + penalty + " pts"));
+    btn.addEventListener("click", async () => {
+      if (!window.confirm("La pista te da la pregunta exacta para el chat y resta " + penalty + " puntos a esta pregunta. ¿Verla?")) return;
+      btn.disabled = true;
+      try {
+        const r = await api("/api/hint", { method: "POST", body: JSON.stringify({ question_id: q.id }) });
+        q.hint = r.hint; q.hint_used = true;
+        btn.parentElement.replaceWith(hintBox(q, true));
+        const head = card.querySelector(".head");
+        head.insertBefore(el("span", "chip hint-used", "Pista −" + penalty), head.querySelector(".pts"));
+        floatText("−" + penalty, head);
+        api("/api/state").then((fresh) => {
+          const updated = fresh.questions.find((x) => x.id === q.id);
+          if (updated) { q.max_points = updated.max_points; head.querySelector(".pts").textContent = "hasta " + q.max_points + " pts"; }
+        }).catch(() => {});
+      } catch (e) {
+        btn.disabled = false;
+        if (e.status === 401) location.reload(); else window.alert(e.message);
+      }
+    });
+    return btn;
+  }
+
   function chip(status) {
     const map = { locked: "Bloqueada", open: "Abierta", solved: "Resuelta", failed: "Sin intentos" };
     return el("span", "chip " + status, map[status] || status);
@@ -346,7 +415,9 @@
 
       const head = el("div", "head");
       const pts = el("span", "pts", q.status === "solved" ? "+" + q.points + " pts" : "hasta " + q.max_points + " pts");
-      head.append(el("span", "num", "Pregunta " + q.number), chip(q.status), pts);
+      head.append(el("span", "num", "Pregunta " + q.number), chip(q.status));
+      if (q.hint_used) head.append(el("span", "chip hint-used", "Pista −" + state.hint_penalty));
+      head.append(pts);
       card.append(head);
 
       if (q.status === "locked") {
@@ -354,7 +425,7 @@
         box.append(card);
         continue;
       }
-      card.append(el("div", "qtext", q.text));
+      card.append(el("div", "qtext", q.goal));
 
       if (q.status === "solved" && q.position) {
         const res = el("div", "result");
@@ -364,20 +435,11 @@
         card.append(raceLine(q));
       }
 
-      const copy = el("button", "ghost", "Copiar para el chat");
-      copy.type = "button";
-      copy.addEventListener("click", async () => {
-        const prompt = state.capture_id ? "capture_id " + state.capture_id + "\n" + q.text : q.text;
-        try { await navigator.clipboard.writeText(prompt); copy.textContent = "Copiado"; }
-        catch (_) { window.prompt("Copia este texto:", prompt); }
-        setTimeout(() => (copy.textContent = "Copiar para el chat"), 1500);
-      });
+      if (q.hint) card.append(hintBox(q, false));
+      if (q.status !== "open") { box.append(card); continue; }
+
       const wrap = el("div", "row");
-      wrap.append(copy);
-
-      if (q.status !== "open") { card.append(wrap); box.append(card); continue; }
-
-      wrap.style.marginBottom = "10px";
+      if (!q.hint) { wrap.style.marginBottom = "10px"; wrap.append(hintButton(q, card)); }
       const form = el("form", "row");
       const input = el("input");
       input.type = "text";
@@ -428,7 +490,7 @@
     const next = await api("/api/state");
     const structural = next.questions.some((q, i) => {
       const old = state && state.questions[i];
-      return !old || old.status !== q.status || old.points !== q.points;
+      return !old || old.status !== q.status || old.points !== q.points || old.hint_used !== q.hint_used;
     });
     state = next;
     if (structural) { renderQuestions(); return; }
@@ -447,6 +509,7 @@
     if (state.chat_url) { link.href = state.chat_url; link.hidden = false; }
     $("capture-id").textContent = state.capture_id;
     $("capture-hint").hidden = !state.capture_id;
+    $("hint-penalty").textContent = state.hint_penalty;
     renderQuestions();
   }
 
@@ -553,6 +616,7 @@
     clearInterval(stateTimer);
     show("login");
   });
+  $("copy-capture").addEventListener("click", (ev) => copyText(ev.target, state.capture_id, "Copiar"));
   $("tab-q").addEventListener("click", () => selectTab("q"));
   $("tab-r").addEventListener("click", () => selectTab("r"));
 

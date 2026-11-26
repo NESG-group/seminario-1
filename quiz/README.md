@@ -6,6 +6,10 @@ Formulario web con login LDAP + backend que valida las respuestas y mantiene un 
 - El usuario entra con su usuario/contraseña LDAP.
 - Ve las 5 preguntas de forma progresiva: la siguiente se desbloquea al acertar la anterior
 - Puntuación: 100 puntos por pregunta, −25 por cada fallo (mínimo 25), máximo 3 intentos.
+- Cada pregunta muestra solo el objetivo (`goal`, "Averigua..."): el participante formula
+  su propia pregunta al asistente. La pista (`hint`) es la pregunta exacta para copiar al
+  chat; pedirla resta `hint_penalty` puntos (50 por defecto) antes del multiplicador, una
+  sola vez, y respetando el mínimo. Al cerrar la pregunta, la pista se muestra sin coste.
 - Bonus por rapidez (`speed_multipliers` en `answers.json`): en cada pregunta, la 1ª persona
   en acertar multiplica ×2, la 2ª ×1,75, la 3ª ×1,5, la 4ª ×1,25 y el resto ×1 (sin la
   clave, no hay bonus). El orden lo decide la llegada al servidor. Empate a puntos: gana
@@ -32,7 +36,7 @@ y de `docker-compose.multiuser.yml`; el `.env` de esta carpeta no se usa.
 
 La captura del seminario está en el datalake como compartida (`make share-capture` en la
 raíz), visible para todos los usuarios del chat. Su ID va en `capture_id` de `answers.json`:
-el quiz lo muestra y lo añade al texto que se copia al chat. Si se vuelve a subir la captura,
+el quiz lo muestra y lo añade a la pista que se copia al chat. Si se vuelve a subir la captura,
 cambia el ID: actualízalo en `answers.json` y en las instrucciones, y reconstruye el quiz.
 
 ## Con LDAP y Docker (independiente)
@@ -47,6 +51,7 @@ Dos modos LDAP: bind directo (`LDAP_USER_DN_TEMPLATE`) o cuenta de servicio + b�
 `answers.json` contiene las respuestas correctas y NO se sube a git (ver `.gitignore`).
 `answers.example.json` es la plantilla. Si el repo es público, no commitees las reales.
 Tipos de respuesta normalizados: ip, port (número) y texto.
+En `goal` y `hint`, `{qN}` se sustituye por la respuesta correcta de una pregunta anterior.
 
 ## Antes del evento
 - `AUTH_MODE=ldap` (el modo `dev` deja entrar a cualquiera).

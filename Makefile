@@ -77,7 +77,7 @@ multiuser-config:
 down-multiuser:
 	$(COMPOSE_MULTIUSER) down
 
-# Empty the seminar quiz (attempts, points, ranking) after typing 'reset'. Open sessions stay valid.
+# Empty the seminar quiz (attempts, hints, points, ranking) after typing 'reset'. Open sessions stay valid.
 # FORCE=1 skips the question.
 QUIZ_DB_PY = import sqlite3; db = sqlite3.connect('/data/quiz.db')
 quiz-reset:
@@ -86,4 +86,4 @@ quiz-reset:
 	  printf "This deletes %s quiz attempts (points and ranking). Type 'reset' to continue: " "$$n"; \
 	  read answer; [ "$$answer" = "reset" ] || { echo "Cancelled, nothing deleted"; exit 1; }; \
 	fi; \
-	docker exec demo-quiz python -c "$(QUIZ_DB_PY); print('Deleted', db.execute('DELETE FROM attempts').rowcount, 'attempts'); db.commit()"
+	docker exec demo-quiz python -c "$(QUIZ_DB_PY); print('Deleted', db.execute('DELETE FROM attempts').rowcount, 'attempts'); db.execute('DELETE FROM hints'); db.commit()"

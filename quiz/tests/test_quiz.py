@@ -63,7 +63,8 @@ def test_initial_state_hides_locked_questions_and_answers(tmp_path):
     login(c, "ana")
     data = c.get("/api/state").json()
     assert [q["status"] for q in data["questions"]] == ["open", "locked", "locked", "locked", "locked"]
-    assert data["questions"][1]["text"] is None
+    assert data["questions"][1]["goal"] is None
+    assert data["questions"][1]["hint"] is None
     assert "192.168.1.4" not in json.dumps(data)
     assert "49183" not in json.dumps(data)
 
@@ -82,8 +83,8 @@ def test_correct_flow_unlocks_in_order_and_fills_context(tmp_path):
     assert answer(c, "q4", "4087").json()["correct"]
     q5 = c.get("/api/state").json()["questions"][4]
     assert q5["status"] == "open"
-    assert all(x in q5["text"] for x in ("4087", "192.168.1.4", "192.168.1.5", "445"))
-    assert "49183" not in q5["text"]
+    assert "4087" in q5["goal"]
+    assert "49183" not in json.dumps(q5)
     assert answer(c, "q5", "49183").json()["points"] == 100
     assert c.get("/api/state").json()["total_points"] == 500
 
@@ -226,15 +227,17 @@ def test_ldap_mode_requires_secret_and_config(tmp_path):
 def test_answers_file_validation(tmp_path):
     bad = {
         "questions": [
-            {"id": "q1", "type": "ip", "text": "usa {q2}", "answer": "1.1.1.1"},
-            {"id": "q2", "type": "ip", "text": "x", "answer": "2.2.2.2"},
+            {"id": "q1", "type": "ip", "goal": "g", "hint": "usa {q2}", "answer": "1.1.1.1"},
+            {"id": "q2", "type": "ip", "goal": "g", "hint": "x", "answer": "2.2.2.2"},
         ]
     }
     path = tmp_path / "bad.json"
     path.write_text(json.dumps(bad))
     with pytest.raises(ValueError):
         quiz.load_quiz(path)
-    path.write_text(json.dumps({"questions": [{"id": "q1", "type": "ip", "text": "x", "answer": "no-ip"}]}))
+    path.write_text(
+        json.dumps({"questions": [{"id": "q1", "type": "ip", "goal": "g", "hint": "x", "answer": "no-ip"}]})
+    )
     with pytest.raises(ValueError):
         quiz.load_quiz(path)
 
@@ -406,3 +409,138 @@ def test_state_exposes_the_multiplier_scale(tmp_path):
     c = make_client(tmp_path, SPEED)
     login(c, "ana")
     assert c.get("/api/state").json()["speed_multipliers"] == SPEED
+
+
+# --------------------------------------------------------------------------- #
+# Objetivo visible y pista (pregunta exacta para el chat) con penalización
+# --------------------------------------------------------------------------- #
+
+Q1_HINT = "What is the IP address of the infected machine?"
+
+
+def hint(client: TestClient, qid: str):
+    return client.post("/api/hint", json={"question_id": qid})
+
+
+def test_state_shows_the_goal_and_hides_the_exact_prompt(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    data = c.get("/api/state").json()
+    q1 = data["questions"][0]
+    assert q1["goal"].startswith("Averigua")
+    assert q1["hint"] is None and q1["hint_used"] is False
+    assert data["hint_penalty"] == 50
+    assert Q1_HINT not in json.dumps(data)
+
+
+def test_hint_returns_the_exact_prompt_and_shows_it_in_state(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    res = hint(c, "q1")
+    assert res.status_code == 200
+    assert res.json() == {"hint": Q1_HINT, "hint_penalty": 50}
+    q1 = c.get("/api/state").json()["questions"][0]
+    assert q1["hint"] == Q1_HINT and q1["hint_used"] is True
+
+
+def test_hint_subtracts_its_penalty_once(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    hint(c, "q1")
+    hint(c, "q1")
+    assert answer(c, "q1", "192.168.1.4").json()["points"] == 50
+
+
+def test_hint_penalty_is_applied_before_the_speed_multiplier(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    hint(c, "q1")
+    assert answer(c, "q1", "192.168.1.4").json()["points"] == 100  # (100 - 50) * 2
+
+
+def test_hint_and_wrong_answers_never_go_below_min_points(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    hint(c, "q1")
+    answer(c, "q1", "10.0.0.1")
+    answer(c, "q1", "10.0.0.2")
+    assert answer(c, "q1", "192.168.1.4").json()["points"] == 25
+
+
+def test_hint_only_for_open_questions(tmp_path):
+    c = make_client(tmp_path)
+    assert hint(c, "q1").status_code == 401
+    login(c, "ana")
+    assert hint(c, "q2").status_code == 409  # bloqueada
+    assert hint(c, "q99").status_code == 404
+    answer(c, "q1", "192.168.1.4")
+    assert hint(c, "q1").status_code == 409  # cerrada
+
+
+def test_hint_of_later_question_fills_previous_answers_but_not_its_own(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    for qid, value in (("q1", "192.168.1.4"), ("q2", "192.168.1.5"), ("q3", "445"), ("q4", "4087")):
+        answer(c, qid, value)
+    text = hint(c, "q5").json()["hint"]
+    assert all(x in text for x in ("4087", "192.168.1.4", "192.168.1.5", "445"))
+    assert "49183" not in text
+
+
+def test_closed_question_shows_the_hint_without_penalty(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    answer(c, "q1", "192.168.1.4")
+    q1 = c.get("/api/state").json()["questions"][0]
+    assert q1["hint"] == Q1_HINT and q1["hint_used"] is False and q1["points"] == 100
+
+
+def test_hints_are_per_user(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    hint(c, "q1")
+    luis = as_user(c, "luis")
+    assert luis.get("/api/state").json()["questions"][0]["hint"] is None
+    assert answer(luis, "q1", "192.168.1.4").json()["points"] == 100
+
+
+def test_admin_csv_reports_hint_use(tmp_path):
+    c = make_client(tmp_path)
+    login(c, "ana")
+    hint(c, "q1")
+    answer(c, "q1", "192.168.1.4")
+    admin = as_user(c, "admin")
+    lines = admin.get("/api/admin/results.csv").text.strip().splitlines()
+    assert lines[0].endswith(",hint_used")
+    assert lines[1].startswith("ana,ana,q1,1,1,50,") and lines[1].endswith(",1")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        {"id": "q1", "type": "ip", "hint": "x", "answer": "1.1.1.1"},
+        {"id": "q1", "type": "ip", "goal": "g", "answer": "1.1.1.1"},
+        {"id": "q1", "type": "ip", "goal": "usa {q2}", "hint": "x", "answer": "1.1.1.1"},
+    ],
+)
+def test_questions_need_goal_and_hint_with_valid_references(tmp_path, question):
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps({"questions": [question]}))
+    with pytest.raises(ValueError):
+        quiz.load_quiz(path)
+
+
+def test_negative_hint_penalty_is_rejected(tmp_path):
+    cfg = json.loads(ANSWERS.read_text())
+    cfg["hint_penalty"] = -10
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError):
+        quiz.load_quiz(path)
+
+
+def test_max_points_drop_after_using_the_hint(tmp_path):
+    c = make_client(tmp_path, SPEED)
+    login(c, "ana")
+    hint(c, "q1")
+    assert c.get("/api/state").json()["questions"][0]["max_points"] == 100  # (100 - 50) * 2

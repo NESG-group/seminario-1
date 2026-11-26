@@ -168,7 +168,9 @@ In multi-user mode `make up-multiuser` also starts the quiz at
 the same service account and search as Open WebUI, so every participant uses
 the same username and password for the chat and for the quiz. LDAP users listed
 in `QUIZ_ADMIN_USERS` (default `admin`) can download the results as CSV.
-`make quiz-reset` empties the quiz (attempts, points and ranking) after you type
+Each question shows what to find out; its hint, the exact question for the chat,
+costs `hint_penalty` points (default 50).
+`make quiz-reset` empties the quiz (attempts, hints, points and ranking) after you type
 `reset`; sessions stay open, so participants only need to reload the page.
 
 The seminar capture lives in the datalake as a **shared** capture, which every

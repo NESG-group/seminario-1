@@ -42,6 +42,11 @@ interno: si el navegador muestra un aviso de seguridad, aceptadlo para continuar
 - **Fuente única de información:** solo se consideran válidas las respuestas obtenidas
   del asistente VIGILANT en el chat. Queda prohibido el uso de analizadores de PCAP
   externos, buscadores u otras fuentes.
+- **Formular las preguntas:** el formulario indica qué hay que averiguar en cada pregunta,
+  pero no cómo preguntarlo: cada participante redacta su propia pregunta al asistente.
+- **Pistas:** si os atascáis, cada pregunta ofrece una pista con la pregunta exacta para
+  copiar y pegar en el chat. Usarla **resta 50 puntos** a esa pregunta (antes de aplicar
+  el bonus por rapidez y nunca por debajo del mínimo de 25).
 - **Intentos por pregunta:** cada pregunta tiene un **límite de 3 intentos**.
 - **Penalización:** cada pregunta vale 100 puntos y cada respuesta incorrecta **resta 25**
   (mínimo 25 si se acaba acertando).
@@ -49,7 +54,7 @@ interno: si el navegador muestra un aviso de seguridad, aceptadlo para continuar
   puntos: la **1ª persona ×2**, la 2ª ×1,75, la 3ª ×1,5, la 4ª ×1,25 y el resto ×1. El
   formulario muestra cuántas personas han resuelto ya cada pregunta y qué multiplicador queda.
 - **Puntuación final:** se calcula de forma automática en función de los aciertos, los
-  intentos consumidos y la rapidez. Gana quien más puntos tenga; en caso de empate, quien
+  intentos consumidos, las pistas usadas y la rapidez. Gana quien más puntos tenga; en caso de empate, quien
   terminó antes.
 - **Ranking:** se puede consultar en directo el **ranking de usuarios** y los últimos
   aciertos desde el propio formulario, para comparar resultados con el resto de participantes.

@@ -2,8 +2,10 @@
 
 Servicio independiente del backend de la demo: no importa nada del repositorio.
 Las respuestas correctas solo viven en el servidor (``answers.json``) y nunca se
-envían al navegador salvo, en el texto de las preguntas posteriores, los datos
-que esa pregunta da por supuestos.
+envían al navegador salvo, en el objetivo y la pista de las preguntas posteriores,
+los datos que esa pregunta da por supuestos. Cada pregunta muestra un objetivo
+("Averigua...") y guarda como pista la pregunta exacta para el chat, que resta
+``hint_penalty`` puntos si se pide antes de cerrar la pregunta.
 """
 
 from __future__ import annotations
@@ -111,7 +113,8 @@ class Settings:
 class Question:
     id: str
     type: str
-    text: str
+    goal: str
+    hint: str
     answer: str
     points: int
 
@@ -125,14 +128,16 @@ class QuizConfig:
     penalty: int
     min_points: int
     questions: tuple[Question, ...]
+    hint_penalty: int = 0
     # Multiplicador por orden de acierto en cada pregunta: [1º, 2º, ...]; después, x1.
     speed_multipliers: tuple[float, ...] = ()
 
     def multiplier_for(self, position: int) -> float:
         return self.speed_multipliers[position - 1] if 1 <= position <= len(self.speed_multipliers) else 1.0
 
-    def max_points(self, question: Question) -> int:
-        return score(question.points, self.multiplier_for(1))
+    def max_points(self, question: Question, hint_used: bool = False) -> int:
+        base = question.points - (self.hint_penalty if hint_used else 0)
+        return score(max(self.min_points, base), self.multiplier_for(1))
 
 
 def score(base: int, multiplier: float) -> int:
@@ -146,6 +151,12 @@ def _parse_speed_multipliers(raw: Any) -> tuple[float, ...]:
     ):
         raise ValueError("speed_multipliers debe ser una lista de números >= 1, p. ej. [2, 1.75, 1.5]")
     return tuple(float(m) for m in raw)
+
+
+def _parse_hint_penalty(raw: Any) -> int:
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
+        raise ValueError("hint_penalty debe ser un entero >= 0")
+    return raw
 
 
 def normalize(kind: str, raw: str) -> str:
@@ -180,15 +191,19 @@ def load_quiz(path: str | Path) -> QuizConfig:
             raise ValueError(f"Tipo no válido en {qid}: {kind}")
         # Valida que la respuesta tenga el formato de su tipo.
         answer = normalize(kind, str(raw["answer"]))
-        # Los marcadores {qN} solo pueden apuntar a preguntas anteriores.
-        for ref in re.findall(r"\{(\w+)\}", raw["text"]):
-            if ref not in seen:
-                raise ValueError(f"{qid}: el texto usa {{{ref}}}, que no es una pregunta anterior")
+        for field in ("goal", "hint"):
+            if not str(raw.get(field, "")).strip():
+                raise ValueError(f"{qid}: falta '{field}'")
+            # Los marcadores {qN} solo pueden apuntar a preguntas anteriores.
+            for ref in re.findall(r"\{(\w+)\}", raw[field]):
+                if ref not in seen:
+                    raise ValueError(f"{qid}: '{field}' usa {{{ref}}}, que no es una pregunta anterior")
         questions.append(
             Question(
                 id=qid,
                 type=kind,
-                text=raw["text"],
+                goal=raw["goal"],
+                hint=raw["hint"],
                 answer=answer,
                 points=int(raw.get("points", data.get("base_points", 100))),
             )
@@ -205,13 +220,14 @@ def load_quiz(path: str | Path) -> QuizConfig:
         min_points=int(data.get("min_points", 25)),
         questions=tuple(questions),
         speed_multipliers=_parse_speed_multipliers(data.get("speed_multipliers", [])),
+        hint_penalty=_parse_hint_penalty(data.get("hint_penalty", 50)),
     )
 
 
-def render_question_text(config: QuizConfig, index: int) -> str:
-    """Rellena los {qN} del texto con las respuestas correctas de las preguntas anteriores."""
+def render_question_text(config: QuizConfig, index: int, template: str) -> str:
+    """Rellena los {qN} con las respuestas correctas de las preguntas anteriores."""
     known = {q.id: q.answer for q in config.questions[:index]}
-    return config.questions[index].text.format_map(known)
+    return template.format_map(known)
 
 
 # --------------------------------------------------------------------------- #
@@ -333,6 +349,12 @@ CREATE TABLE IF NOT EXISTS attempts (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts (username, question_id);
+CREATE TABLE IF NOT EXISTS hints (
+    username TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (username, question_id)
+);
 """
 
 
@@ -387,6 +409,11 @@ def user_progress(conn: sqlite3.Connection, username: str) -> dict[str, Progress
     return out
 
 
+def user_hints(conn: sqlite3.Connection, username: str) -> set[str]:
+    rows = conn.execute("SELECT question_id FROM hints WHERE username = ?", (username,))
+    return {r["question_id"] for r in rows}
+
+
 def solved_counts(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute("SELECT question_id, COUNT(*) AS n FROM attempts WHERE correct = 1 GROUP BY question_id")
     return {r["question_id"]: r["n"] for r in rows}
@@ -432,6 +459,10 @@ def question_status(config: QuizConfig, progress: dict[str, Progress], index: in
 class LoginBody(BaseModel):
     username: str = Field(max_length=64)
     password: str = Field(max_length=256)
+
+
+class HintBody(BaseModel):
+    question_id: str = Field(max_length=32)
 
 
 class AnswerBody(BaseModel):
@@ -557,6 +588,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             progress = user_progress(conn, user.username)
             counts = solved_counts(conn)
             positions = user_positions(conn, user.username)
+            hints = user_hints(conn, user.username)
         items = []
         total = 0
         for index, q in enumerate(config.questions):
@@ -565,17 +597,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             total += prog.points
             solved_by = counts.get(q.id, 0)
             position = positions.get(q.id)
+            hint_used = q.id in hints
+            show_hint = hint_used or status in ("solved", "failed")
             items.append(
                 {
                     "id": q.id,
                     "number": index + 1,
                     "type": q.type,
                     "status": status,
-                    "text": None if status == "locked" else render_question_text(config, index),
+                    "goal": None if status == "locked" else render_question_text(config, index, q.goal),
+                    "hint": render_question_text(config, index, q.hint) if show_hint else None,
+                    "hint_used": hint_used,
                     "attempts_used": prog.wrong + (1 if prog.solved else 0),
                     "attempts_left": 0 if status in ("solved", "failed") else config.max_attempts - prog.wrong,
                     "points": prog.points,
-                    "max_points": config.max_points(q),
+                    "max_points": config.max_points(q, hint_used),
                     "solved_by": solved_by,
                     "next_multiplier": config.multiplier_for(solved_by + 1),
                     "position": position,
@@ -588,15 +624,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "capture_id": config.capture_id,
             "max_attempts": config.max_attempts,
             "speed_multipliers": list(config.speed_multipliers),
+            "hint_penalty": config.hint_penalty,
             "total_points": total,
             "questions": items,
         }
 
-    @app.post("/api/answer")
-    def answer(body: AnswerBody, user: CurrentUser) -> dict[str, Any]:
-        index = next((i for i, q in enumerate(config.questions) if q.id == body.question_id), None)
+    def question_index(question_id: str) -> int:
+        index = next((i for i, q in enumerate(config.questions) if q.id == question_id), None)
         if index is None:
             raise HTTPException(status_code=404, detail="Pregunta no encontrada")
+        return index
+
+    def ensure_open(progress: dict[str, Progress], index: int) -> None:
+        status = question_status(config, progress, index)
+        if status == "locked":
+            raise HTTPException(status_code=409, detail="Responde antes la pregunta anterior")
+        if status in ("solved", "failed"):
+            raise HTTPException(status_code=409, detail="Esta pregunta ya está cerrada")
+
+    @app.post("/api/hint")
+    def hint(body: HintBody, user: CurrentUser) -> dict[str, Any]:
+        index = question_index(body.question_id)
+        q = config.questions[index]
+        with store.tx() as conn:
+            ensure_open(user_progress(conn, user.username), index)
+            conn.execute(
+                "INSERT OR IGNORE INTO hints (username, question_id, created_at) VALUES (?, ?, ?)",
+                (user.username, q.id, time.time()),
+            )
+        return {"hint": render_question_text(config, index, q.hint), "hint_penalty": config.hint_penalty}
+
+    @app.post("/api/answer")
+    def answer(body: AnswerBody, user: CurrentUser) -> dict[str, Any]:
+        index = question_index(body.question_id)
         q = config.questions[index]
         try:
             given = normalize(q.type, body.answer)
@@ -605,17 +665,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         with store.tx() as conn:
             progress = user_progress(conn, user.username)
-            status = question_status(config, progress, index)
-            if status == "locked":
-                raise HTTPException(status_code=409, detail="Responde antes la pregunta anterior")
-            if status in ("solved", "failed"):
-                raise HTTPException(status_code=409, detail="Esta pregunta ya está cerrada")
+            ensure_open(progress, index)
             wrong = progress.get(q.id, Progress()).wrong
+            hint_cost = config.hint_penalty if q.id in user_hints(conn, user.username) else 0
             correct = hmac.compare_digest(given, q.answer)
             # El candado del store serializa las respuestas: el orden de llegada decide la posición.
             position = solved_counts(conn).get(q.id, 0) + 1 if correct else None
             multiplier = config.multiplier_for(position) if position else 1.0
-            base = max(config.min_points, q.points - config.penalty * wrong)
+            base = max(config.min_points, q.points - config.penalty * wrong - hint_cost)
             points = score(base, multiplier) if correct else 0
             conn.execute(
                 "INSERT INTO attempts (username, display_name, question_id, answer, correct, points, created_at)"
@@ -675,15 +732,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with store.tx() as conn:
             rows = conn.execute(
                 """
-                SELECT username, MAX(display_name) AS display_name, question_id,
-                       COUNT(*) AS attempts, MAX(correct) AS solved, SUM(points) AS points,
-                       MAX(created_at) AS last_attempt
-                FROM attempts GROUP BY username, question_id ORDER BY username, question_id
+                SELECT a.username, MAX(a.display_name) AS display_name, a.question_id,
+                       COUNT(*) AS attempts, MAX(a.correct) AS solved, SUM(a.points) AS points,
+                       MAX(a.created_at) AS last_attempt, MAX(h.username IS NOT NULL) AS hint_used
+                FROM attempts a
+                LEFT JOIN hints h ON h.username = a.username AND h.question_id = a.question_id
+                GROUP BY a.username, a.question_id ORDER BY a.username, a.question_id
                 """
             ).fetchall()
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["username", "display_name", "question_id", "attempts", "solved", "points", "last_attempt_utc"])
+        writer.writerow(
+            ["username", "display_name", "question_id", "attempts", "solved", "points", "last_attempt_utc", "hint_used"]
+        )
         for r in rows:
             stamp = datetime.fromtimestamp(r["last_attempt"], UTC).strftime("%Y-%m-%d %H:%M:%S")
             writer.writerow(
@@ -695,6 +756,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     r["solved"],
                     r["points"],
                     stamp,
+                    r["hint_used"],
                 ]
             )
         return PlainTextResponse(
