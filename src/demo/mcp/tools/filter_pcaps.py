@@ -378,6 +378,7 @@ async def _run_tshark(args: Sequence[str], *, offset: int, limit: int) -> tuple[
 def _bounds(offset: int, limit: int) -> tuple[int, int]:
     return max(0, offset), max(1, min(limit, _MAX_LIMIT))
 
+
 def _with_frame_range(base: str, frame_from: int | None, frame_to: int | None) -> str:
     """Restrict a view's fixed filter to a frame-number range (ints only, so no injection)."""
     if frame_from is None and frame_to is None:
@@ -388,6 +389,7 @@ def _with_frame_range(base: str, frame_from: int | None, frame_to: int | None) -
     if frame_to is not None:
         parts.append(f"frame.number <= {int(frame_to)}")
     return " && ".join(parts)
+
 
 def _result(
     capture_id: uuid.UUID,
@@ -467,6 +469,7 @@ async def _field_view(
             fix(row)
         rows.append([row[c] for c in columns])
     return _result(capture_id, view, display_filter, columns, rows, total, offset, warning)
+
 
 # --------------------------------------------------------------------------- #
 # Public views
