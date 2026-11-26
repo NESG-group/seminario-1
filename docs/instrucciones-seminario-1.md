@@ -7,9 +7,6 @@ preguntas concretas sobre una captura de tráfico correspondiente a un **escenar
 ransomware** en el que se ha ejecutado el binario **CryLock** (variante de la familia
 Cryakl/CryLock).
 
-La captura utilizada es un extracto obtenido del
-[dataset público de la Universidad Pública de Navarra](http://dataset.tlm.unavarra.es/ransomware/php/moreInfo.php?sample=CryLock_24012021).
-
 El reto consiste en formular las preguntas adecuadas al asistente y utilizar únicamente la
 información que este devuelva en el chat para responder el cuestionario. No se permite el
 uso de herramientas externas de análisis de PCAP ni consultar otras fuentes: el asistente es
