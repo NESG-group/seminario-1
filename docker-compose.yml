@@ -1,0 +1,113 @@
+name: demo-noms-2027
+
+services:
+  postgres:
+    image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+    container_name: demo-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-demo}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-demo_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-demo_db}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-demo} -d ${POSTGRES_DB:-demo_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - demo-net
+    restart: always
+
+  ollama:
+    # Pinned to the versions used for the paper results (Ollama 0.33.3).
+    image: ollama/ollama@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2
+    container_name: demo-ollama
+    runtime: nvidia
+    ports:
+      - "127.0.0.1:11435:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - demo-net
+    restart: always
+
+  hermes:
+    # Hermes Agent 0.21.1
+    image: nousresearch/hermes-agent@sha256:5aa20e4fd299c4f0b3e5de91992fba8d677aa9625feb544a83cfb76fe2b1d7f8
+    container_name: demo-hermes
+    command: gateway run
+    ports:
+      - "127.0.0.1:8642:8642"
+      - "127.0.0.1:9119:9119"
+    environment:
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_KEY=${HERMES_API_SERVER_KEY:?set HERMES_API_SERVER_KEY in .env (make env)}
+      # Run Hermes as the host user so it does not chown the bind-mounted config and skills.
+      - HERMES_UID=${HERMES_UID:-1000}
+      - HERMES_GID=${HERMES_GID:-1000}
+    volumes:
+      - hermes-data:/opt/data
+      - ./hermes/config.yaml:/opt/data/config.yaml
+      # Read-only: Hermes would otherwise sync its bundled skills into this
+      # directory at boot. The model must only see the skills in this repo.
+      - ./hermes/skills:/opt/data/skills:ro
+    depends_on:
+      - ollama
+      - demo-backend
+    networks:
+      - demo-net
+    restart: always
+
+  demo-backend:
+    build: .
+    container_name: demo-backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini:ro
+      - demo-data:/var/lib/demo
+      - open-webui-data:/var/lib/open-webui/data:ro
+    environment:
+      - HERMES_BASE_URL=http://hermes:8642/v1
+      - HERMES_API_KEY=${HERMES_API_SERVER_KEY:?set HERMES_API_SERVER_KEY in .env (make env)}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-demo}:${POSTGRES_PASSWORD:-demo_pass}@postgres:5432/${POSTGRES_DB:-demo_db}
+      - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    # Apply the datalake schema (idempotent) before starting the API.
+    command: sh -c "alembic upgrade head && exec uvicorn demo.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - demo-net
+    restart: always
+
+networks:
+  demo-net:
+    driver: bridge
+
+volumes:
+  ollama-models:
+  hermes-data:
+  demo-data:
+  open-webui-data:
+  postgres-data:

@@ -1,0 +1,80 @@
+# Multi-user access: HTTPS proxy + LDAP login + per-user captures.
+#
+# Usage (on top of the other two files; `make up-multiuser` does this):
+#   docker compose -f docker-compose.yml -f docker-compose.dev-ui.yml \
+#                  -f docker-compose.multiuser.yml up -d
+#
+# Only the proxy listens on the network (80/443). LLDAP's admin page and the
+# other services stay on 127.0.0.1. To use another LDAP server instead of the
+# bundled LLDAP, set the LDAP_* variables in .env (see env.example).
+services:
+  proxy:
+    # Caddy 2.10.2
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    container_name: demo-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DEMO_HOST=${DEMO_HOST:?set DEMO_HOST in .env (the name or IP users type in the browser)}
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps Caddy's internal CA, so the certificate users trust survives restarts.
+      - caddy-data:/data
+    depends_on:
+      - open-webui
+    networks:
+      - demo-net
+    restart: always
+
+  lldap:
+    # LLDAP 0.6.2: small LDAP server with a web page to manage users.
+    image: lldap/lldap@sha256:9e605a66c02514bfcffd1b67cafb1e98d50992216bb2871d7ae44622047dd09d
+    container_name: demo-lldap
+    ports:
+      # Admin page (users, groups, passwords), only from this machine.
+      - "127.0.0.1:17170:17170"
+    environment:
+      - LLDAP_LDAP_BASE_DN=${LDAP_BASE_DN:-dc=demo,dc=local}
+      - LLDAP_LDAP_USER_PASS=${LLDAP_ADMIN_PASSWORD:?set LLDAP_ADMIN_PASSWORD in .env (make multiuser-env)}
+      - LLDAP_JWT_SECRET=${LLDAP_JWT_SECRET:?set LLDAP_JWT_SECRET in .env (make multiuser-env)}
+      - LLDAP_KEY_SEED=${LLDAP_KEY_SEED:?set LLDAP_KEY_SEED in .env (make multiuser-env)}
+      - TZ=Europe/Madrid
+    volumes:
+      - lldap-data:/data
+    networks:
+      - demo-net
+    restart: always
+
+  open-webui:
+    environment:
+      - WEBUI_URL=https://${DEMO_HOST}
+      # No self-registration: accounts come from LDAP (plus the existing local admin).
+      - ENABLE_SIGNUP=false
+      - DEFAULT_USER_ROLE=user
+      # Models are private to the admin by default; every demo user needs hermes-agent.
+      - BYPASS_MODEL_ACCESS_CONTROL=true
+      - ENABLE_LDAP=true
+      - LDAP_SERVER_LABEL=${LDAP_SERVER_LABEL:-Demo LDAP}
+      - LDAP_SERVER_HOST=${LDAP_SERVER_HOST:-lldap}
+      - LDAP_SERVER_PORT=${LDAP_SERVER_PORT:-3890}
+      # Bundled LLDAP: plain LDAP inside the Docker network. Set true for a remote server.
+      - LDAP_USE_TLS=${LDAP_USE_TLS:-false}
+      - LDAP_APP_DN=${LDAP_APP_DN:-uid=admin,ou=people,dc=demo,dc=local}
+      - LDAP_APP_PASSWORD=${LDAP_APP_PASSWORD:-${LLDAP_ADMIN_PASSWORD}}
+      - LDAP_SEARCH_BASE=${LDAP_SEARCH_BASE:-ou=people,dc=demo,dc=local}
+      - LDAP_ATTRIBUTE_FOR_USERNAME=${LDAP_ATTRIBUTE_FOR_USERNAME:-uid}
+      - LDAP_ATTRIBUTE_FOR_MAIL=${LDAP_ATTRIBUTE_FOR_MAIL:-mail}
+      - LDAP_SEARCH_FILTERS=${LDAP_SEARCH_FILTERS:-}
+      # Tell the backend who is asking, in a JWT signed with a secret it shares.
+      - ENABLE_FORWARD_USER_INFO_HEADERS=true
+      - FORWARD_USER_INFO_HEADER_JWT_SECRET=${USER_JWT_SECRET:?set USER_JWT_SECRET in .env (make multiuser-env)}
+
+  demo-backend:
+    environment:
+      # Turns on multi-user mode: verified user per chat, captures per user.
+      - USER_JWT_SECRET=${USER_JWT_SECRET}
+
+volumes:
+  caddy-data:
+  lldap-data:

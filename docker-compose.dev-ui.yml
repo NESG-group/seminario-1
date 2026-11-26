@@ -1,0 +1,25 @@
+# Open WebUI, the chat frontend of the demo. It talks to the backend's
+# OpenAI-compatible proxy (/v1), which forwards to Hermes.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev-ui.yml up
+services:
+  open-webui:
+    # Open WebUI 0.11.3, pinned to the version used for the paper results.
+    image: ghcr.io/open-webui/open-webui@sha256:1a6399d237dc392a2313e0ca826020b3fd5d22536357840eb63393d18dc8b924
+    container_name: demo-ui-dev
+    ports:
+      - "127.0.0.1:3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://demo-backend:8000/v1
+      - OPENAI_API_KEY=not-needed
+      - ENABLE_OLLAMA_API=false
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      - demo-backend
+    networks:
+      - demo-net
+    restart: always
+
+volumes:
+  open-webui-data:

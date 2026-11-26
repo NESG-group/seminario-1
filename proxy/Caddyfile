@@ -1,0 +1,15 @@
+{
+	# Clients send no SNI when DEMO_HOST is an IP address: serve its certificate anyway.
+	default_sni {$DEMO_HOST}
+}
+
+{$DEMO_HOST} {
+	# Certificate from Caddy's own CA (internal network, no public domain).
+	# Browsers warn until its root certificate is trusted: see README.
+	tls internal
+
+	reverse_proxy open-webui:8080 {
+		# Pass answers through as they stream instead of buffering them.
+		flush_interval -1
+	}
+}
